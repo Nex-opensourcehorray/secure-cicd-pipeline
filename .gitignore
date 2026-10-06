@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+*.log
+
+# Local environment configuration and secrets
+.env
+.env.*
+
+# Terraform-generated files and state
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+*.tfplan
+crash.log
+
+# Environment-specific Terraform variable files
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+# Operating system files
+.DS_Store
+Thumbs.db

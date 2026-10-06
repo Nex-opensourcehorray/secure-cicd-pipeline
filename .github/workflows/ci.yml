@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: application
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: application/requirements-dev.txt
+
+      - name: Install development dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest
+
+  container:
+    name: Container validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: test
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker build --tag secure-cicd-demo:ci ./application
+
+      - name: Start container
+        run: |
+          docker run --detach \
+            --name secure-cicd-demo-ci \
+            --publish 127.0.0.1:8000:8000 \
+            --env APP_ENV=ci \
+            --env APP_VERSION=0.1.0-ci \
+            secure-cicd-demo:ci
+
+      - name: Wait for API readiness
+        run: |
+          set -euo pipefail
+          for attempt in {1..20}; do
+            if response="$(curl --fail --silent http://127.0.0.1:8000/health)"; then
+              if [ "$response" = '{"status":"healthy"}' ]; then
+                echo "API readiness check passed."
+                exit 0
+              fi
+            fi
+            echo "Waiting for API readiness (attempt ${attempt}/20)..."
+            sleep 2
+          done
+          echo "API did not become ready in time."
+          exit 1
+
+      - name: Verify Docker health status
+        run: |
+          set -euo pipefail
+          for attempt in {1..30}; do
+            health_status="$(docker inspect --format='{{.State.Health.Status}}' secure-cicd-demo-ci)"
+            if [ "$health_status" = "healthy" ]; then
+              echo "Docker HEALTHCHECK passed."
+              exit 0
+            fi
+            if [ "$health_status" = "unhealthy" ]; then
+              echo "Docker reported an unhealthy container."
+              exit 1
+            fi
+            echo "Waiting for Docker health status (attempt ${attempt}/30)..."
+            sleep 2
+          done
+          echo "Container did not reach healthy status in time."
+          exit 1
+
+      - name: Run API smoke tests
+        run: |
+          set -euo pipefail
+          root_response="$(curl --fail --silent --show-error http://127.0.0.1:8000/)"
+          health_response="$(curl --fail --silent --show-error http://127.0.0.1:8000/health)"
+          version_response="$(curl --fail --silent --show-error http://127.0.0.1:8000/version)"
+
+          test "$root_response" = '{"service":"secure-cicd-demo","status":"running"}'
+          test "$health_response" = '{"status":"healthy"}'
+          test "$version_response" = '{"version":"0.1.0-ci","environment":"ci"}'
+
+      - name: Verify non-root runtime
+        run: |
+          set -euo pipefail
+          runtime_uid="$(docker exec secure-cicd-demo-ci id -u)"
+          runtime_gid="$(docker exec secure-cicd-demo-ci id -g)"
+          echo "Container runtime UID:GID is ${runtime_uid}:${runtime_gid}."
+          test "$runtime_uid" = "10001"
+          test "$runtime_gid" = "10001"
+          test "$runtime_uid" != "0"
+
+      - name: Show container diagnostics
+        if: failure()
+        run: |
+          docker ps --all
+          docker logs secure-cicd-demo-ci || true
+          docker inspect secure-cicd-demo-ci || true
+
+      - name: Remove validation container
+        if: always()
+        run: docker rm --force secure-cicd-demo-ci 2>/dev/null || true
