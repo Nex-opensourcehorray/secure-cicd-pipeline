@@ -1,4 +1,4 @@
-FROM python:3.14.7-alpine3.24 AS builder
+FROM python:3.14.7-alpine3.24@sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01 AS builder
 
 WORKDIR /build
 
@@ -10,7 +10,7 @@ RUN python -m venv /opt/venv \
     && rm -rf /opt/venv/lib/python3.14/site-packages/pip* \
         /opt/venv/lib/python3.14/site-packages/setuptools*
 
-FROM python:3.14.7-alpine3.24
+FROM python:3.14.7-alpine3.24@sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
