@@ -1,4 +1,4 @@
-FROM python:3.14.7-slim-trixie AS builder
+FROM python:3.14.7-alpine3.24 AS builder
 
 WORKDIR /build
 
@@ -10,7 +10,7 @@ RUN python -m venv /opt/venv \
     && rm -rf /opt/venv/lib/python3.14/site-packages/pip* \
         /opt/venv/lib/python3.14/site-packages/setuptools*
 
-FROM python:3.14.7-slim-trixie
+FROM python:3.14.7-alpine3.24
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -22,8 +22,8 @@ RUN python -m pip uninstall --yes pip setuptools \
     && rm -rf /usr/local/lib/python3.14/ensurepip \
         /usr/local/lib/python3.14/site-packages/pip* \
         /usr/local/lib/python3.14/site-packages/setuptools* \
-    && groupadd --gid 10001 appgroup \
-    && useradd --uid 10001 --gid appgroup --no-create-home --shell /usr/sbin/nologin appuser
+    && addgroup -g 10001 -S appgroup \
+    && adduser -u 10001 -S -D -H -G appgroup -s /sbin/nologin appuser
 
 COPY --from=builder /opt/venv /opt/venv
 COPY --chown=appuser:appgroup app/ ./app/
