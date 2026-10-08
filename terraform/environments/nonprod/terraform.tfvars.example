@@ -4,7 +4,7 @@ project_name        = "secure-cicd-pipeline"
 environment         = "nonprod"
 ecr_repository_name = "secure-cicd-demo"
 
-github_owner         = "YOUR_GITHUB_USERNAME"
+github_owner         = "Nex-opensourcehorray"
 github_owner_id      = "YOUR_GITHUB_OWNER_ID"
 github_repository    = "secure-cicd-pipeline"
 github_repository_id = "YOUR_GITHUB_REPOSITORY_ID"
