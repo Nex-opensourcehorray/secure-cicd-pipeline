@@ -6,9 +6,10 @@ Stage 7 prepares and validates trusted publication of one commit-addressed
 container image to a private Amazon ECR repository. It does not deploy ECS,
 networking, load balancers, DNS, or application runtime infrastructure.
 
-The ECR/OIDC foundation apply and the first ECR image publication are separate
+The NonProd ECR foundation, Management OIDC/IAM foundation, NonProd
+cross-account repository policy, and first ECR image publication are separate
 owner approval gates. A Git push that adds or changes the publication workflow
-is also a separate approval gate.
+or Terraform source is also a separate approval gate.
 
 ## Publication workflow
 
@@ -41,7 +42,8 @@ digest. It has no ECS or Terraform step.
 The owner must review and configure these repository variables separately:
 
 ```text
-AWS_ACCOUNT_ID
+AWS_MANAGEMENT_ACCOUNT_ID
+AWS_NONPROD_ACCOUNT_ID
 AWS_REGION
 AWS_ECR_PUBLISH_ROLE_ARN
 ECR_REPOSITORY
@@ -62,11 +64,20 @@ Repository: Nex-opensourcehorray/secure-cicd-pipeline
 Branch:     refs/heads/main
 ```
 
-For GitHub repositories using immutable subject claims, the Terraform design
-expects the numeric owner and repository IDs in the `sub` value and also checks
-`repository_owner_id`, `repository_id`, and `ref` separately. The real IDs must
-be collected from authenticated GitHub metadata before planning or applying the
-AWS foundation. Do not replace them with guessed values.
+The Terraform trust uses GitHub's standard branch subject
+`repo:Nex-opensourcehorray/secure-cicd-pipeline:ref:refs/heads/main`. It also
+requires exact `repository_owner_id`, `repository_id`, and `ref` claim values.
+The numeric IDs come from verified public GitHub metadata and must not be
+replaced with guessed values.
+
+## AWS account boundary
+
+The GitHub OIDC provider and publisher identity belong to the Management
+account. The private ECR repository belongs to the NonProd account. They use
+independent Terraform roots and states. The ECR repository policy that will
+trust the exact Management publisher-role ARN is deferred until that role
+exists and its ARN can be verified; it must not trust a wildcard principal or
+the Management account root.
 
 ## AWS permission boundary
 

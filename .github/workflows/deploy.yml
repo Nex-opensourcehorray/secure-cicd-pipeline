@@ -50,6 +50,7 @@ jobs:
       id-token: write
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_NONPROD_ACCOUNT_ID: ${{ vars.AWS_NONPROD_ACCOUNT_ID }}
       ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
       LOCAL_IMAGE: secure-cicd-demo:${{ github.sha }}
 
@@ -61,8 +62,9 @@ jobs:
           test "$GITHUB_REPOSITORY" = "Nex-opensourcehorray/secure-cicd-pipeline"
           test "$GITHUB_REF" = "refs/heads/main"
           test -n "$AWS_REGION"
+          test -n "$AWS_NONPROD_ACCOUNT_ID"
           test -n "$ECR_REPOSITORY"
-          test -n "${{ vars.AWS_ACCOUNT_ID }}"
+          test -n "${{ vars.AWS_MANAGEMENT_ACCOUNT_ID }}"
           test -n "${{ vars.AWS_ECR_PUBLISH_ROLE_ARN }}"
 
       - name: Check out trusted source
@@ -102,22 +104,22 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_ECR_PUBLISH_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          allowed-account-ids: ${{ vars.AWS_MANAGEMENT_ACCOUNT_ID }}
           role-session-name: github-ecr-${{ github.run_id }}
 
       - name: Log in to private Amazon ECR
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2.1.6
         with:
+          registries: ${{ env.AWS_NONPROD_ACCOUNT_ID }}
           mask-password: "true"
 
       - name: Push immutable commit image
         id: push
         shell: bash
-        env:
-          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
         run: |
           set -euo pipefail
+          ECR_REGISTRY="${AWS_NONPROD_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           image_uri="${ECR_REGISTRY}/${ECR_REPOSITORY}:${GITHUB_SHA}"
           docker tag "$LOCAL_IMAGE" "$image_uri"
           docker push "$image_uri"
@@ -130,6 +132,7 @@ jobs:
           set -euo pipefail
           digest="$(aws ecr describe-images \
             --region "$AWS_REGION" \
+            --registry-id "$AWS_NONPROD_ACCOUNT_ID" \
             --repository-name "$ECR_REPOSITORY" \
             --image-ids "imageTag=$GITHUB_SHA" \
             --query 'imageDetails[0].imageDigest' \
