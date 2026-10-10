@@ -12,5 +12,5 @@ private_subnet_cidrs = [
   "10.42.11.0/24",
 ]
 
-ecr_repository_name  = "secure-cicd-demo"
-future_log_group_name = "/ecs/secure-cicd-pipeline/nonprod"
+ecr_repository_name = "secure-cicd-demo"
+log_group_name      = "/ecs/secure-cicd-pipeline/nonprod"

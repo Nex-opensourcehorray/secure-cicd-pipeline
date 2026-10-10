@@ -1,8 +1,7 @@
 locals {
   name_prefix       = "${var.project_name}-${var.environment}"
-  account_principal = "arn:aws:iam::${var.aws_account_id}:root"
   dns_resolver_cidr = "${cidrhost(var.vpc_cidr, 2)}/32"
-  future_log_arn    = "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:${var.future_log_group_name}:*"
+  runtime_log_arn   = "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:${var.log_group_name}:*"
   s3_layer_arn      = "arn:aws:s3:::prod-${var.aws_region}-starport-layer-bucket/*"
 
   subnet_layout = {
@@ -219,7 +218,7 @@ data "aws_iam_policy_document" "ecr_api_endpoint" {
 
     principals {
       type        = "AWS"
-      identifiers = [local.account_principal]
+      identifiers = [var.runtime_execution_role_arn]
     }
   }
 
@@ -227,7 +226,6 @@ data "aws_iam_policy_document" "ecr_api_endpoint" {
     sid    = "RepositoryPullMetadata"
     effect = "Allow"
     actions = [
-      "ecr:BatchCheckLayerAvailability",
       "ecr:BatchGetImage",
       "ecr:GetDownloadUrlForLayer",
     ]
@@ -235,7 +233,7 @@ data "aws_iam_policy_document" "ecr_api_endpoint" {
 
     principals {
       type        = "AWS"
-      identifiers = [local.account_principal]
+      identifiers = [var.runtime_execution_role_arn]
     }
   }
 }
@@ -245,7 +243,6 @@ data "aws_iam_policy_document" "ecr_dkr_endpoint" {
     sid    = "RepositoryImagePull"
     effect = "Allow"
     actions = [
-      "ecr:BatchCheckLayerAvailability",
       "ecr:BatchGetImage",
       "ecr:GetDownloadUrlForLayer",
     ]
@@ -253,7 +250,7 @@ data "aws_iam_policy_document" "ecr_dkr_endpoint" {
 
     principals {
       type        = "AWS"
-      identifiers = [local.account_principal]
+      identifiers = [var.runtime_execution_role_arn]
     }
   }
 }
@@ -266,16 +263,18 @@ data "aws_iam_policy_document" "logs_endpoint" {
       "logs:CreateLogStream",
       "logs:PutLogEvents",
     ]
-    resources = [local.future_log_arn]
+    resources = [local.runtime_log_arn]
 
     principals {
       type        = "AWS"
-      identifiers = [local.account_principal]
+      identifiers = [var.runtime_execution_role_arn]
     }
   }
 }
 
 data "aws_iam_policy_document" "s3_endpoint" {
+  # Gateway endpoint policies require Principal "*". Least privilege is
+  # enforced here through the single read action and exact ECR layer bucket.
   statement {
     sid       = "EcrImageLayerRead"
     effect    = "Allow"
@@ -283,8 +282,8 @@ data "aws_iam_policy_document" "s3_endpoint" {
     resources = [local.s3_layer_arn]
 
     principals {
-      type        = "AWS"
-      identifiers = [local.account_principal]
+      type        = "*"
+      identifiers = ["*"]
     }
   }
 }
