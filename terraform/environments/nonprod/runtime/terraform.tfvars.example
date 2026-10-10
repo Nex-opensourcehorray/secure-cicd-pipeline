@@ -1,0 +1,16 @@
+aws_region     = "ap-southeast-1"
+aws_account_id = "119033255630"
+
+project_name = "secure-cicd-pipeline"
+environment  = "nonprod"
+
+vpc_cidr            = "10.42.0.0/16"
+availability_zones  = ["ap-southeast-1a", "ap-southeast-1b"]
+public_subnet_cidrs = ["10.42.0.0/24", "10.42.1.0/24"]
+private_subnet_cidrs = [
+  "10.42.10.0/24",
+  "10.42.11.0/24",
+]
+
+ecr_repository_name  = "secure-cicd-demo"
+future_log_group_name = "/ecs/secure-cicd-pipeline/nonprod"
