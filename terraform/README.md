@@ -18,18 +18,34 @@ an explicit input; it does not read another root's state.
 
 The required order is:
 
-1. apply the NonProd ECR foundation after its separate approval gate;
+1. use the deployed and verified NonProd ECR foundation;
 2. pass the reviewed ECR repository ARN to and apply the Management identity
    foundation after its separate approval gate;
 3. add and apply the NonProd ECR cross-account repository policy after the
    Management publisher-role ARN has been independently verified; and
 4. publish the first commit-addressed image after its separate approval gate.
 
-No Stage 7 AWS apply has occurred. The cross-account repository policy is
-design-only in this stage and is intentionally absent from both active roots.
-Its future principal must be the exact Management publisher-role ARN, never a
-wildcard or the entire Management account root. Its allowed actions are limited
-to:
+The Stage 7.5 NonProd ECR foundation has been deployed and verified. The
+Management OIDC/IAM foundation, cross-account ECR repository policy, and first
+ECR image publication have not occurred. The NonProd and Management roots remain
+separate Terraform and state boundaries.
+
+This repository was created after GitHub's July 15, 2026 immutable-subject
+cutover. Its default GitHub OIDC subject therefore includes the immutable owner
+and repository IDs alongside their names:
+
+```text
+repo:Nex-opensourcehorray@82328818/secure-cicd-pipeline@1409968457:ref:refs/heads/main
+```
+
+The IDs prevent repository or owner name reuse from reproducing the trusted
+subject. The trust policy also checks the audience, owner ID, repository ID, and
+exact `main` branch ref separately.
+
+The cross-account repository policy remains design-only and is intentionally
+absent from both active roots. Its future principal must be the exact Management
+publisher-role ARN, never a wildcard or the entire Management account root. Its
+allowed actions are limited to:
 
 ```text
 ecr:BatchCheckLayerAvailability
