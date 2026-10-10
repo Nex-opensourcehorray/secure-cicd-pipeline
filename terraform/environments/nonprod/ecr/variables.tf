@@ -41,13 +41,3 @@ variable "ecr_repository_name" {
     error_message = "Stage 7 is scoped to the secure-cicd-demo repository."
   }
 }
-
-variable "publisher_role_arn" {
-  description = "Verified Management-account IAM role authorized by the NonProd ECR repository policy."
-  type        = string
-
-  validation {
-    condition     = var.publisher_role_arn == "arn:aws:iam::191125774822:role/secure-cicd-pipeline-nonprod-github-ecr-publisher"
-    error_message = "publisher_role_arn must be the verified Management GitHub ECR publisher role ARN."
-  }
-}

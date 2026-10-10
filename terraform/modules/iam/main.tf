@@ -59,6 +59,8 @@ data "aws_iam_policy_document" "github_assume_role" {
   }
 }
 
+# The legacy Terraform address, AWS name, and description are intentionally
+# retained so the deployed role is not replaced during the broker conversion.
 resource "aws_iam_role" "github_ecr_publisher" {
   name                 = var.role_name
   description          = "Allows trusted GitHub Actions runs to publish images to one ECR repository."
@@ -70,32 +72,17 @@ resource "aws_iam_role" "github_ecr_publisher" {
 
 data "aws_iam_policy_document" "ecr_publish" {
   statement {
-    sid    = "GetECRAuthorizationToken"
+    sid    = "AssumeNonProdECRPublisher"
     effect = "Allow"
     actions = [
-      "ecr:GetAuthorizationToken",
+      "sts:AssumeRole",
     ]
-
-    # AWS does not support repository-level resource scoping for this action.
-    resources = ["*"]
-  }
-
-  statement {
-    sid    = "PushImageToRepository"
-    effect = "Allow"
-    actions = [
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:CompleteLayerUpload",
-      "ecr:DescribeImages",
-      "ecr:InitiateLayerUpload",
-      "ecr:PutImage",
-      "ecr:UploadLayerPart",
-    ]
-
-    resources = [var.ecr_repository_arn]
+    resources = [var.nonprod_publisher_role_arn]
   }
 }
 
+# This legacy resource address, name, and description are also retained so the
+# existing managed policy is updated in place instead of replaced.
 resource "aws_iam_policy" "ecr_publish" {
   name        = "${var.role_name}-policy"
   description = "Least-privilege permissions to publish images to one ECR repository."

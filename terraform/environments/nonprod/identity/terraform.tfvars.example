@@ -1,0 +1,8 @@
+aws_region = "ap-southeast-1"
+
+project_name = "secure-cicd-pipeline"
+environment  = "nonprod"
+role_name    = "secure-cicd-pipeline-nonprod-ecr-publisher"
+
+management_broker_role_arn = "arn:aws:iam::191125774822:role/secure-cicd-pipeline-nonprod-github-ecr-publisher"
+ecr_repository_arn         = "arn:aws:ecr:ap-southeast-1:119033255630:repository/secure-cicd-demo"

@@ -1,5 +1,5 @@
 output "github_actions_role_arn" {
-  description = "ARN of the GitHub Actions ECR publishing role."
+  description = "ARN of the GitHub Actions broker role."
   value       = aws_iam_role.github_ecr_publisher.arn
 }
 

@@ -1,35 +1,59 @@
 # Stage 7 Terraform account boundaries
 
-Stage 7 uses separate Terraform roots and state boundaries for the approved
-two-account architecture:
+Stage 7 uses three Terraform roots and separate state boundaries for its
+two-account role-chaining architecture:
 
-- `environments/nonprod/ecr` owns only the private ECR repository, lifecycle
-  policy, and cross-account publisher policy in the NonProd account.
+- `environments/nonprod/ecr` owns only the private ECR repository and lifecycle
+  policy in the NonProd account.
+- `environments/nonprod/identity` owns only the dedicated ECR publisher role,
+  managed policy, and role-policy attachment in the NonProd account.
 - `environments/management/identity` owns only the GitHub OIDC provider,
-  publisher role, least-privilege managed policy, and attachment in the
-  Management account.
+  existing GitHub broker role, managed policy, and attachment in the Management
+  account.
 
-Neither root configures ECS, networking, a remote backend, or application
-runtime resources. Each root must be initialized and planned with its dedicated
-AWS profile. The Management root accepts the reviewed NonProd repository ARN as
-an explicit input; it does not read another root's state.
+No root configures ECS, networking, a remote backend, or application runtime
+resources. Each root must be initialized and planned with its dedicated AWS
+profile. The roots exchange reviewed ARNs through explicit inputs; none reads
+another root's state.
+
+## Active role-chaining architecture
+
+The target publication path is:
+
+```text
+GitHub Actions
+    -> GitHub OIDC / AssumeRoleWithWebIdentity
+    -> Management broker role
+    -> sts:AssumeRole
+    -> NonProd publisher role
+    -> same-account IAM authorization
+    -> secure-cicd-demo
+```
+
+This design uses no static AWS keys. GitHub OIDC remains restricted by the
+immutable owner and repository IDs and the exact `main` branch. After migration,
+the existing Management role cannot publish to ECR directly and can assume only
+the exact NonProd publisher role. The NonProd role can publish to exactly one
+repository. No ECR repository resource policy is required.
 
 ## Deployment dependency
 
-The required order is:
+The required future migration order is:
 
-1. use the deployed and verified NonProd ECR foundation;
-2. use the deployed and verified Management identity foundation, scoped to the
-   reviewed NonProd ECR repository ARN;
-3. apply the prepared NonProd ECR cross-account repository policy after its
-   separate approval gate; and
-4. publish the first commit-addressed image after its separate approval gate.
+1. publish and validate this source;
+2. create the NonProd publisher role, managed policy, and attachment;
+3. verify that the NonProd role exists;
+4. convert the existing Management role policy from direct ECR publication to
+   `sts:AssumeRole` for only the NonProd publisher role;
+5. configure the required GitHub repository variables under a separate gate;
+6. run the manual read-only role-chain trust check under a separate gate;
+7. verify the ECR image inventory remains zero; and
+8. authorize the first commit-addressed image publication separately.
 
 The Stage 7.5 NonProd ECR foundation and Stage 7.6 Management OIDC/IAM
-foundation have been deployed and verified. The Stage 7.7 cross-account ECR
-repository-policy source is prepared but has not been applied. The first ECR
-image publication has not occurred. The NonProd and Management roots remain
-separate Terraform and state boundaries.
+foundation are deployed and verified. The NonProd publisher identity and
+Management broker-policy conversion are source design only until separately
+approved and applied. The first ECR image publication has not occurred.
 
 This repository was created after GitHub's July 15, 2026 immutable-subject
 cutover. Its default GitHub OIDC subject therefore includes the immutable owner
@@ -43,12 +67,8 @@ The IDs prevent repository or owner name reuse from reproducing the trusted
 subject. The trust policy also checks the audience, owner ID, repository ID, and
 exact `main` branch ref separately.
 
-Cross-account publication requires both the Management role's identity policy
-and the NonProd ECR repository resource policy. The prepared repository policy
-uses the Management account principal together with an exact `ArnEquals`
-`aws:PrincipalArn` condition for the verified publisher role. Both checks must
-match, so the effective trusted identity remains that one role. Its allowed
-actions are limited to:
+The dedicated NonProd publisher role's same-account identity policy limits
+repository operations to:
 
 ```text
 ecr:BatchCheckLayerAvailability
@@ -59,11 +79,15 @@ ecr:PutImage
 ecr:UploadLayerPart
 ```
 
-The publisher identity policy grants the same repository-scoped actions to the
-exact NonProd repository ARN. It grants `ecr:GetAuthorizationToken` on `*`
-because that API does not support repository-level resource scoping.
+Those actions are scoped to
+`arn:aws:ecr:ap-southeast-1:119033255630:repository/secure-cicd-demo`. The role
+also grants `ecr:GetAuthorizationToken` on `*` because that API does not support
+repository-level resource scoping. Its trust policy accepts only
+`arn:aws:iam::191125774822:role/secure-cicd-pipeline-nonprod-github-ecr-publisher`
+for `sts:AssumeRole`; it does not trust the account root, GitHub OIDC provider,
+or any wildcard principal.
 
-## Stage 7.7.1 repository-policy semantics repair
+## Historical Stage 7.7.1 repository-policy semantics repair
 
 The first Stage 7.7 apply was rejected by the ECR `SetRepositoryPolicy` API
 with `InvalidParameterException`. AWS created no live repository policy, and
@@ -71,8 +95,8 @@ Terraform created no managed repository-policy state. The failure was an
 implementation issue involving ECR's service-specific repository resource
 policy semantics; it had no security impact.
 
-The repository policy now uses `Resource = "*"`, consistent with AWS ECR
-repository-policy examples. Because the policy is attached directly to
+That repair changed the repository policy to `Resource = "*"`, consistent with
+AWS ECR repository-policy examples. Because the policy was attached directly to
 `secure-cicd-demo`, that value does not grant access to every ECR repository.
 At that repair, the exact publisher-role Principal and six allowed actions
 remained unchanged, and the Management identity policy continued to scope those
@@ -83,7 +107,7 @@ attachment scope, so the two applicable findings are explicitly documented as
 service-semantic exceptions on this policy document. Wildcard Principal and
 wildcard Action checks remain enabled.
 
-## Stage 7.7.2 cross-account Principal compatibility repair
+## Historical Stage 7.7.2 cross-account Principal compatibility repair
 
 The approved Stage 7.7.1 retry was also rejected by the ECR
 `SetRepositoryPolicy` API with `InvalidParameterException`. The second failure
@@ -92,7 +116,7 @@ state, no image, and no change to the existing ECR repository or lifecycle
 policy. This remains ECR cross-account policy compatibility troubleshooting;
 security impact and live resource damage are both `NONE`.
 
-Stage 7.7.2 aligns the repository policy with AWS's canonical cross-account
+Stage 7.7.2 aligned the repository policy with AWS's canonical cross-account
 pattern by using `arn:aws:iam::191125774822:root` as the Principal while an
 exact `ArnEquals` condition requires `aws:PrincipalArn` to equal the durable
 Management publisher-role ARN. The account Principal alone is not sufficient.
@@ -102,7 +126,7 @@ the exact-role condition, and the repository-specific attachment scope. The
 Management identity policy remains unchanged and scoped to the exact NonProd
 repository ARN.
 
-## Stage 7.7.3 repository-policy anti-lockout compatibility repair
+## Historical Stage 7.7.3 repository-policy anti-lockout compatibility repair
 
 The approved Stage 7.7.2 retry was the third `SetRepositoryPolicy` failure.
 Like the first two attempts, Amazon ECR rejected it with HTTP 400
@@ -137,8 +161,8 @@ does not expose that API argument. This is therefore a compatibility
 hypothesis based on the repeated service validation failures, not a claim of a
 validated live fix.
 
-To preserve an administration path without bypassing the safeguard, the
-prepared policy adds one same-account statement for
+To preserve an administration path without bypassing the safeguard, that
+prepared policy added one same-account statement for
 `arn:aws:iam::119033255630:root` with only these repository-policy operations:
 
 ```text
@@ -159,3 +183,41 @@ Center role ARN because permission-set roles can be recreated with a different
 suffix; coupling recovery to that implementation detail would reduce
 operational resilience. Checkov's permissions-management finding is documented
 as a narrow exception for these three same-account anti-lockout actions only.
+
+## Historical Stage 7.7.4 acceptance-isolation diagnostic
+
+The approved fourth and final repository-policy attempt was also rejected by
+Amazon ECR with HTTP 400 `InvalidParameterException` and `Invalid repository
+policy provided`. Its CloudTrail request ID was:
+
+```text
+81098ebf-ea99-4b4d-9d02-af467ba3a487
+```
+
+Across all four attempts, the request reached the correct NonProd account and
+Region with an authenticated caller, but Amazon ECR accepted none of the policy
+forms. No attempt created a live repository policy, managed repository-policy
+Terraform state, or image. The ECR repository and lifecycle policy remained
+unchanged. The underlying service-acceptance cause therefore remains
+unidentified; another speculative live retry is not justified.
+
+## Stage 7.7.5 role-chaining fallback
+
+The direct cross-account ECR repository-policy architecture is historical and
+has been intentionally abandoned. Its Terraform resource, policy-document data
+source, dedicated inputs, and Checkov exceptions have been removed from active
+source. The prior sections remain as an audit trail of the four failed attempts;
+they do not describe the active design.
+
+The replacement source keeps the deployed Management OIDC provider and role
+resource identities unchanged. Only the Management role's attached permission
+policy is designed to change, from direct ECR actions to `sts:AssumeRole` on the
+exact NonProd publisher role. A separate NonProd identity root owns that role,
+its same-account ECR policy, and its attachment. This avoids further
+`SetRepositoryPolicy` retries while preserving account and Terraform-state
+separation.
+
+The manual `trust-check.yml` workflow is deliberately separate from image
+publication. It performs the two role assumptions, verifies the active NonProd
+account, and calls only read-only `ecr:DescribeImages`. Creating or publishing
+that workflow does not authorize running it or publishing an image.

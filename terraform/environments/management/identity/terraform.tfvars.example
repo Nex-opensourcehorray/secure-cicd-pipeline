@@ -9,4 +9,4 @@ github_repository    = "secure-cicd-pipeline"
 github_repository_id = "1409968457"
 github_branch        = "main"
 
-ecr_repository_arn = "arn:aws:ecr:ap-southeast-1:<NONPROD_ACCOUNT_ID>:repository/secure-cicd-demo"
+nonprod_publisher_role_arn = "arn:aws:iam::119033255630:role/secure-cicd-pipeline-nonprod-ecr-publisher"

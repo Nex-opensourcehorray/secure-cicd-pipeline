@@ -31,13 +31,13 @@ variable "environment" {
   }
 }
 
-variable "ecr_repository_arn" {
-  description = "Reviewed ARN of the NonProd ECR repository authorized for publication."
+variable "nonprod_publisher_role_arn" {
+  description = "Reviewed ARN of the only NonProd ECR publisher role the broker may assume."
   type        = string
 
   validation {
-    condition     = can(regex("^arn:[^:]+:ecr:${var.aws_region}:[0-9]{12}:repository/secure-cicd-demo$", var.ecr_repository_arn))
-    error_message = "ecr_repository_arn must identify secure-cicd-demo in the configured workload Region."
+    condition     = var.nonprod_publisher_role_arn == "arn:aws:iam::119033255630:role/secure-cicd-pipeline-nonprod-ecr-publisher"
+    error_message = "nonprod_publisher_role_arn must identify the reviewed NonProd ECR publisher role."
   }
 }
 

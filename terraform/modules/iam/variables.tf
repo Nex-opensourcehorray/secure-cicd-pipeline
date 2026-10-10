@@ -8,13 +8,13 @@ variable "role_name" {
   }
 }
 
-variable "ecr_repository_arn" {
-  description = "ARN of the single ECR repository the role may publish to."
+variable "nonprod_publisher_role_arn" {
+  description = "ARN of the single NonProd ECR publisher role the GitHub broker may assume."
   type        = string
 
   validation {
-    condition     = can(regex("^arn:[^:]+:ecr:[^:]+:[0-9]{12}:repository/.+$", var.ecr_repository_arn))
-    error_message = "ecr_repository_arn must be a valid ECR repository ARN."
+    condition     = can(regex("^arn:[^:]+:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$", var.nonprod_publisher_role_arn))
+    error_message = "nonprod_publisher_role_arn must be a valid IAM role ARN."
   }
 }
 

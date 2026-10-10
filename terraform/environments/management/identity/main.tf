@@ -10,12 +10,12 @@ locals {
 module "iam" {
   source = "../../../modules/iam"
 
-  role_name            = "${var.project_name}-${var.environment}-github-ecr-publisher"
-  ecr_repository_arn   = var.ecr_repository_arn
-  github_owner         = var.github_owner
-  github_owner_id      = var.github_owner_id
-  github_repository    = var.github_repository
-  github_repository_id = var.github_repository_id
-  github_branch        = var.github_branch
-  tags                 = local.common_tags
+  role_name                  = "${var.project_name}-${var.environment}-github-ecr-publisher"
+  nonprod_publisher_role_arn = var.nonprod_publisher_role_arn
+  github_owner               = var.github_owner
+  github_owner_id            = var.github_owner_id
+  github_repository          = var.github_repository
+  github_repository_id       = var.github_repository_id
+  github_branch              = var.github_branch
+  tags                       = local.common_tags
 }

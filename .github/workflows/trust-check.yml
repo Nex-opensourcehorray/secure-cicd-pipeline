@@ -1,0 +1,68 @@
+name: Verify ECR role chain
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  trust-check:
+    name: Verify Management to NonProd trust
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_MANAGEMENT_ACCOUNT_ID: ${{ vars.AWS_MANAGEMENT_ACCOUNT_ID }}
+      AWS_NONPROD_ACCOUNT_ID: ${{ vars.AWS_NONPROD_ACCOUNT_ID }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+
+    steps:
+      - name: Enforce trusted verification context
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "Nex-opensourcehorray/secure-cicd-pipeline"
+          test "$GITHUB_REF" = "refs/heads/main"
+          test -n "$AWS_REGION"
+          test -n "$AWS_MANAGEMENT_ACCOUNT_ID"
+          test -n "$AWS_NONPROD_ACCOUNT_ID"
+          test -n "$ECR_REPOSITORY"
+          test -n "${{ vars.AWS_MANAGEMENT_BROKER_ROLE_ARN }}"
+          test -n "${{ vars.AWS_NONPROD_ECR_PUBLISH_ROLE_ARN }}"
+
+      - name: Configure Management broker credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_MANAGEMENT_BROKER_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ env.AWS_MANAGEMENT_ACCOUNT_ID }}
+          role-session-name: github-trust-broker-${{ github.run_id }}
+
+      - name: Configure NonProd publisher credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_NONPROD_ECR_PUBLISH_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ env.AWS_NONPROD_ACCOUNT_ID }}
+          role-chaining: true
+          role-skip-session-tagging: true
+          role-session-name: github-trust-nonprod-${{ github.run_id }}
+
+      - name: Verify NonProd account and read ECR inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_account="$(aws sts get-caller-identity --query Account --output text)"
+          if [ "$actual_account" != "$AWS_NONPROD_ACCOUNT_ID" ]; then
+            echo "Expected NonProd account $AWS_NONPROD_ACCOUNT_ID, received $actual_account" >&2
+            exit 1
+          fi
+
+          aws ecr describe-images \
+            --region "$AWS_REGION" \
+            --registry-id "$AWS_NONPROD_ACCOUNT_ID" \
+            --repository-name "$ECR_REPOSITORY" \
+            --query 'length(imageDetails)' \
+            --output text

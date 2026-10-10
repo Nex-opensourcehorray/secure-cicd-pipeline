@@ -50,6 +50,7 @@ jobs:
       id-token: write
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_MANAGEMENT_ACCOUNT_ID: ${{ vars.AWS_MANAGEMENT_ACCOUNT_ID }}
       AWS_NONPROD_ACCOUNT_ID: ${{ vars.AWS_NONPROD_ACCOUNT_ID }}
       ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
       LOCAL_IMAGE: secure-cicd-demo:${{ github.sha }}
@@ -62,10 +63,11 @@ jobs:
           test "$GITHUB_REPOSITORY" = "Nex-opensourcehorray/secure-cicd-pipeline"
           test "$GITHUB_REF" = "refs/heads/main"
           test -n "$AWS_REGION"
+          test -n "$AWS_MANAGEMENT_ACCOUNT_ID"
           test -n "$AWS_NONPROD_ACCOUNT_ID"
           test -n "$ECR_REPOSITORY"
-          test -n "${{ vars.AWS_MANAGEMENT_ACCOUNT_ID }}"
-          test -n "${{ vars.AWS_ECR_PUBLISH_ROLE_ARN }}"
+          test -n "${{ vars.AWS_MANAGEMENT_BROKER_ROLE_ARN }}"
+          test -n "${{ vars.AWS_NONPROD_ECR_PUBLISH_ROLE_ARN }}"
 
       - name: Check out trusted source
         uses: actions/checkout@v7
@@ -99,13 +101,33 @@ jobs:
           vuln-type: os,library
           severity: HIGH,CRITICAL
 
-      - name: Configure short-lived AWS credentials
+      - name: Configure Management broker credentials
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
-          role-to-assume: ${{ vars.AWS_ECR_PUBLISH_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_MANAGEMENT_BROKER_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-          allowed-account-ids: ${{ vars.AWS_MANAGEMENT_ACCOUNT_ID }}
+          allowed-account-ids: ${{ env.AWS_MANAGEMENT_ACCOUNT_ID }}
+          role-session-name: github-broker-${{ github.run_id }}
+
+      - name: Configure NonProd publisher credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_NONPROD_ECR_PUBLISH_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ env.AWS_NONPROD_ACCOUNT_ID }}
+          role-chaining: true
+          role-skip-session-tagging: true
           role-session-name: github-ecr-${{ github.run_id }}
+
+      - name: Verify NonProd AWS account
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_account="$(aws sts get-caller-identity --query Account --output text)"
+          if [ "$actual_account" != "$AWS_NONPROD_ACCOUNT_ID" ]; then
+            echo "Expected NonProd account $AWS_NONPROD_ACCOUNT_ID, received $actual_account" >&2
+            exit 1
+          fi
 
       - name: Log in to private Amazon ECR
         id: ecr-login

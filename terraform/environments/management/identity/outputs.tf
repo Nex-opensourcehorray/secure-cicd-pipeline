@@ -1,5 +1,5 @@
 output "github_actions_role_arn" {
-  description = "ARN used by GitHub Actions for OIDC role assumption."
+  description = "ARN of the Management broker role used by GitHub Actions OIDC."
   value       = module.iam.github_actions_role_arn
 }
 
