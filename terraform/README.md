@@ -60,3 +60,23 @@ ecr:UploadLayerPart
 The publisher identity policy grants the same repository-scoped actions to the
 exact NonProd repository ARN. It grants `ecr:GetAuthorizationToken` on `*`
 because that API does not support repository-level resource scoping.
+
+## Stage 7.7.1 repository-policy semantics repair
+
+The first Stage 7.7 apply was rejected by the ECR `SetRepositoryPolicy` API
+with `InvalidParameterException`. AWS created no live repository policy, and
+Terraform created no managed repository-policy state. The failure was an
+implementation issue involving ECR's service-specific repository resource
+policy semantics; it had no security impact.
+
+The repository policy now uses `Resource = "*"`, consistent with AWS ECR
+repository-policy examples. Because the policy is attached directly to
+`secure-cicd-demo`, that value does not grant access to every ECR repository.
+The exact publisher-role Principal and six allowed actions remain unchanged,
+and the Management identity policy continues to scope those repository actions
+to the exact NonProd ECR repository ARN.
+
+Checkov's generic wildcard-resource checks do not model this ECR-specific
+attachment scope, so the two applicable findings are explicitly documented as
+service-semantic exceptions on this policy document. Wildcard Principal and
+wildcard Action checks remain enabled.

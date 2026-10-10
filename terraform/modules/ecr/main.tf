@@ -53,6 +53,8 @@ resource "aws_ecr_lifecycle_policy" "this" {
 }
 
 data "aws_iam_policy_document" "cross_account_publish" {
+  #checkov:skip=CKV_AWS_111:ECR repository policies require Resource "*" and are scoped by the attached repository.
+  #checkov:skip=CKV_AWS_356:ECR repository policies require Resource "*" and are scoped by the attached repository.
   statement {
     sid    = "AllowManagementPublisher"
     effect = "Allow"
@@ -64,7 +66,9 @@ data "aws_iam_policy_document" "cross_account_publish" {
       "ecr:PutImage",
       "ecr:UploadLayerPart",
     ]
-    resources = [aws_ecr_repository.this.arn]
+    # ECR repository policies are attached to one repository and use Resource
+    # "*"; the Management identity policy separately scopes the exact ARN.
+    resources = ["*"]
 
     principals {
       type        = "AWS"
