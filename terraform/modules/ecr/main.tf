@@ -53,6 +53,7 @@ resource "aws_ecr_lifecycle_policy" "this" {
 }
 
 data "aws_iam_policy_document" "cross_account_publish" {
+  #checkov:skip=CKV_AWS_109:ECR anti-lockout requires same-account Get/Set/DeleteRepositoryPolicy; this attached policy grants no image, repository, or lifecycle administration.
   #checkov:skip=CKV_AWS_111:ECR repository policies require Resource "*" and are scoped by the attached repository.
   #checkov:skip=CKV_AWS_356:ECR repository policies require Resource "*" and are scoped by the attached repository.
   statement {
@@ -96,6 +97,22 @@ data "aws_iam_policy_document" "cross_account_publish" {
       test     = "ArnEquals"
       variable = "aws:PrincipalArn"
       values   = [var.publisher_role_arn]
+    }
+  }
+
+  statement {
+    sid    = "AllowNonProdRepositoryPolicyAdministration"
+    effect = "Allow"
+    actions = [
+      "ecr:DeleteRepositoryPolicy",
+      "ecr:GetRepositoryPolicy",
+      "ecr:SetRepositoryPolicy",
+    ]
+    resources = ["*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::119033255630:root"]
     }
   }
 }

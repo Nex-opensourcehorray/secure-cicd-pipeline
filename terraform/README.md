@@ -101,3 +101,61 @@ action are in separate statements. Both statements retain `Resource = "*"`,
 the exact-role condition, and the repository-specific attachment scope. The
 Management identity policy remains unchanged and scoped to the exact NonProd
 repository ARN.
+
+## Stage 7.7.3 repository-policy anti-lockout compatibility repair
+
+The approved Stage 7.7.2 retry was the third `SetRepositoryPolicy` failure.
+Like the first two attempts, Amazon ECR rejected it with HTTP 400
+`InvalidParameterException` and `Invalid repository policy provided`. The
+three rejected forms were:
+
+- exact Management publisher-role Principal with the exact repository ARN;
+- exact Management publisher-role Principal with `Resource = "*"`; and
+- Management account Principal with the exact publisher-role `PrincipalArn`
+  condition and `Resource = "*"`.
+
+No attempt published an image, created a live repository policy or managed
+repository-policy state, or damaged the repository or lifecycle policy. The
+CloudTrail request IDs for the three attempts are, from newest to oldest:
+
+```text
+c41661fc-5ba2-4063-ac0d-d9ce491e26b9
+22d9fcf7-12b0-4604-8eac-59a352a0d893
+cd8a487d-eda8-4c88-9280-b65e2a2865dd
+```
+
+CloudTrail records all three calls in NonProd account `119033255630`, Region
+`ap-southeast-1`, from the authenticated NonProd IAM Identity Center
+administrator session. The live repository policy and its Terraform state
+address remain absent. The repository, lifecycle policy, and zero-image state
+remain intact. Security impact and live resource damage are both `NONE`.
+
+AWS documents an anti-lockout safeguard on `SetRepositoryPolicy`: a policy
+that would prevent a future policy update must be submitted with `force`.
+The installed HashiCorp AWS provider's `aws_ecr_repository_policy` resource
+does not expose that API argument. This is therefore a compatibility
+hypothesis based on the repeated service validation failures, not a claim of a
+validated live fix.
+
+To preserve an administration path without bypassing the safeguard, the
+prepared policy adds one same-account statement for
+`arn:aws:iam::119033255630:root` with only these repository-policy operations:
+
+```text
+ecr:GetRepositoryPolicy
+ecr:SetRepositoryPolicy
+ecr:DeleteRepositoryPolicy
+```
+
+The statement uses `Resource = "*"` because the policy is attached to the one
+`secure-cicd-demo` repository. It grants no image, repository deletion,
+lifecycle-policy, registry, IAM, or other ECR operations. An AWS account
+Principal delegates authority to identities in that account; their applicable
+identity permissions and other policy controls still govern access. The two
+Management publisher statements, exact publisher-role condition, six publish
+and verification actions, and Management identity policy remain unchanged.
+The owning-account Principal is preferred over the generated IAM Identity
+Center role ARN because permission-set roles can be recreated with a different
+suffix; coupling recovery to that implementation detail would reduce
+operational resilience. Checkov's permissions-management finding is documented
+as a narrow exception for these three same-account anti-lockout actions only.
