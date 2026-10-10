@@ -51,3 +51,29 @@ resource "aws_ecr_lifecycle_policy" "this" {
     ]
   })
 }
+
+data "aws_iam_policy_document" "cross_account_publish" {
+  statement {
+    sid    = "AllowManagementPublisher"
+    effect = "Allow"
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:CompleteLayerUpload",
+      "ecr:DescribeImages",
+      "ecr:InitiateLayerUpload",
+      "ecr:PutImage",
+      "ecr:UploadLayerPart",
+    ]
+    resources = [aws_ecr_repository.this.arn]
+
+    principals {
+      type        = "AWS"
+      identifiers = [var.publisher_role_arn]
+    }
+  }
+}
+
+resource "aws_ecr_repository_policy" "publisher" {
+  repository = aws_ecr_repository.this.name
+  policy     = data.aws_iam_policy_document.cross_account_publish.json
+}

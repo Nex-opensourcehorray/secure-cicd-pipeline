@@ -30,6 +30,16 @@ variable "untagged_image_retention_days" {
   }
 }
 
+variable "publisher_role_arn" {
+  description = "Verified Management-account IAM role authorized to publish images to this repository."
+  type        = string
+
+  validation {
+    condition     = var.publisher_role_arn == "arn:aws:iam::191125774822:role/secure-cicd-pipeline-nonprod-github-ecr-publisher"
+    error_message = "publisher_role_arn must be the verified Management GitHub ECR publisher role ARN."
+  }
+}
+
 variable "tags" {
   description = "Tags applied to the ECR repository."
   type        = map(string)

@@ -3,3 +3,5 @@ aws_region = "ap-southeast-1"
 project_name        = "secure-cicd-pipeline"
 environment         = "nonprod"
 ecr_repository_name = "secure-cicd-demo"
+
+publisher_role_arn = "arn:aws:iam::191125774822:role/secure-cicd-pipeline-nonprod-github-ecr-publisher"
