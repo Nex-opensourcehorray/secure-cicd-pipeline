@@ -56,12 +56,11 @@ data "aws_iam_policy_document" "cross_account_publish" {
   #checkov:skip=CKV_AWS_111:ECR repository policies require Resource "*" and are scoped by the attached repository.
   #checkov:skip=CKV_AWS_356:ECR repository policies require Resource "*" and are scoped by the attached repository.
   statement {
-    sid    = "AllowManagementPublisher"
+    sid    = "AllowManagementPublisherPush"
     effect = "Allow"
     actions = [
       "ecr:BatchCheckLayerAvailability",
       "ecr:CompleteLayerUpload",
-      "ecr:DescribeImages",
       "ecr:InitiateLayerUpload",
       "ecr:PutImage",
       "ecr:UploadLayerPart",
@@ -72,7 +71,31 @@ data "aws_iam_policy_document" "cross_account_publish" {
 
     principals {
       type        = "AWS"
-      identifiers = [var.publisher_role_arn]
+      identifiers = ["arn:aws:iam::191125774822:root"]
+    }
+
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:PrincipalArn"
+      values   = [var.publisher_role_arn]
+    }
+  }
+
+  statement {
+    sid       = "AllowManagementPublisherDescribe"
+    effect    = "Allow"
+    actions   = ["ecr:DescribeImages"]
+    resources = ["*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::191125774822:root"]
+    }
+
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:PrincipalArn"
+      values   = [var.publisher_role_arn]
     }
   }
 }

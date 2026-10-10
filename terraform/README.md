@@ -45,8 +45,10 @@ exact `main` branch ref separately.
 
 Cross-account publication requires both the Management role's identity policy
 and the NonProd ECR repository resource policy. The prepared repository policy
-trusts only the exact verified Management publisher-role ARN, never a wildcard
-or the entire Management account root. Its allowed actions are limited to:
+uses the Management account principal together with an exact `ArnEquals`
+`aws:PrincipalArn` condition for the verified publisher role. Both checks must
+match, so the effective trusted identity remains that one role. Its allowed
+actions are limited to:
 
 ```text
 ecr:BatchCheckLayerAvailability
@@ -72,11 +74,30 @@ policy semantics; it had no security impact.
 The repository policy now uses `Resource = "*"`, consistent with AWS ECR
 repository-policy examples. Because the policy is attached directly to
 `secure-cicd-demo`, that value does not grant access to every ECR repository.
-The exact publisher-role Principal and six allowed actions remain unchanged,
-and the Management identity policy continues to scope those repository actions
-to the exact NonProd ECR repository ARN.
+At that repair, the exact publisher-role Principal and six allowed actions
+remained unchanged, and the Management identity policy continued to scope those
+repository actions to the exact NonProd ECR repository ARN.
 
 Checkov's generic wildcard-resource checks do not model this ECR-specific
 attachment scope, so the two applicable findings are explicitly documented as
 service-semantic exceptions on this policy document. Wildcard Principal and
 wildcard Action checks remain enabled.
+
+## Stage 7.7.2 cross-account Principal compatibility repair
+
+The approved Stage 7.7.1 retry was also rejected by the ECR
+`SetRepositoryPolicy` API with `InvalidParameterException`. The second failure
+created no live repository policy, no managed repository-policy Terraform
+state, no image, and no change to the existing ECR repository or lifecycle
+policy. This remains ECR cross-account policy compatibility troubleshooting;
+security impact and live resource damage are both `NONE`.
+
+Stage 7.7.2 aligns the repository policy with AWS's canonical cross-account
+pattern by using `arn:aws:iam::191125774822:root` as the Principal while an
+exact `ArnEquals` condition requires `aws:PrincipalArn` to equal the durable
+Management publisher-role ARN. The account Principal alone is not sufficient.
+The five documented upload actions and the `ecr:DescribeImages` verification
+action are in separate statements. Both statements retain `Resource = "*"`,
+the exact-role condition, and the repository-specific attachment scope. The
+Management identity policy remains unchanged and scoped to the exact NonProd
+repository ARN.
