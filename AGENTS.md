@@ -388,6 +388,31 @@ For ECR publication, repository-scoped actions should be restricted to the exact
 
 `ecr:GetAuthorizationToken` may require `"Resource": "*"`, but that exception must not be used to broaden unrelated ECR actions.
 
+For the current Stage 7 two-account publication path, the Management broker
+role may only call `sts:AssumeRole` against:
+
+```text
+arn:aws:iam::119033255630:role/secure-cicd-pipeline-nonprod-ecr-publisher
+```
+
+The NonProd publisher role may call `ecr:GetAuthorizationToken` on `*`. Its
+repository-scoped permissions must contain only:
+
+```text
+ecr:BatchCheckLayerAvailability
+ecr:CompleteLayerUpload
+ecr:DescribeImages
+ecr:InitiateLayerUpload
+ecr:PutImage
+ecr:UploadLayerPart
+```
+
+against exactly:
+
+```text
+arn:aws:ecr:ap-southeast-1:119033255630:repository/secure-cicd-demo
+```
+
 ---
 
 # GitHub OIDC rules
@@ -426,11 +451,25 @@ For this project:
 Nex-opensourcehorray/secure-cicd-pipeline
 ```
 
-Where the workflow is intended to deploy only from `main`, prefer a subject condition equivalent to:
+This repository uses GitHub's immutable default subject form. Its exact subject
+for `main` is:
 
 ```text
-repo:Nex-opensourcehorray/secure-cicd-pipeline:ref:refs/heads/main
+repo:Nex-opensourcehorray@82328818/secure-cicd-pipeline@1409968457:ref:refs/heads/main
 ```
+
+The trust policy must also check these claims independently:
+
+```text
+aud = sts.amazonaws.com
+repository_owner_id = 82328818
+repository_id = 1409968457
+ref = refs/heads/main
+```
+
+The numeric owner and repository IDs are part of the subject and prevent name
+reuse from reproducing the trusted identity. Do not restore the legacy
+name-only subject.
 
 Do not broaden trust to patterns such as:
 
@@ -442,7 +481,8 @@ repo:*/*
 
 merely to fix authentication.
 
-If GitHub Environments are later introduced, review whether the OIDC `sub` condition must change.
+If GitHub Environments are later introduced, review the expected OIDC subject
+before changing AWS trust.
 
 ---
 
@@ -855,7 +895,9 @@ container scan
    ↓
 GitHub OIDC
    ↓
-least-privilege AWS role
+Management broker role
+   ↓
+NonProd ECR publisher role
    ↓
 private ECR
    ↓
