@@ -88,13 +88,23 @@ variable "ecr_repository_arn" {
   }
 }
 
-variable "future_log_group_name" {
-  description = "Exact future CloudWatch log group name allowed by the Logs endpoint policy."
+variable "log_group_name" {
+  description = "Exact CloudWatch log group name allowed by the Logs endpoint policy."
   type        = string
 
   validation {
-    condition     = startswith(var.future_log_group_name, "/") && length(var.future_log_group_name) <= 512
-    error_message = "future_log_group_name must begin with / and contain no more than 512 characters."
+    condition     = startswith(var.log_group_name, "/") && length(var.log_group_name) <= 512
+    error_message = "log_group_name must begin with / and contain no more than 512 characters."
+  }
+}
+
+variable "runtime_execution_role_arn" {
+  description = "Exact ECS task execution role ARN allowed by interface endpoint policies."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$", var.runtime_execution_role_arn))
+    error_message = "runtime_execution_role_arn must be a valid IAM role ARN."
   }
 }
 

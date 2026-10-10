@@ -82,3 +82,28 @@ output "listener_status" {
   description = "Stage 8.1 listener posture."
   value       = module.alb.listener_status
 }
+
+output "ecs_cluster_name" {
+  description = "Name of the dedicated Stage 8 ECS cluster."
+  value       = module.ecs.cluster_name
+}
+
+output "ecs_cluster_arn" {
+  description = "ARN of the dedicated Stage 8 ECS cluster."
+  value       = module.ecs.cluster_arn
+}
+
+output "ecs_execution_role_arn" {
+  description = "ARN of the dedicated ECS task execution role."
+  value       = module.ecs.execution_role_arn
+}
+
+output "ecs_execution_policy_arn" {
+  description = "ARN of the custom ECS task execution policy."
+  value       = module.ecs.execution_policy_arn
+}
+
+output "ecs_log_group_name" {
+  description = "Name of the ECS application log group."
+  value       = module.ecs.log_group_name
+}

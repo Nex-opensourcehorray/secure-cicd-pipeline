@@ -97,13 +97,13 @@ variable "ecr_repository_name" {
   }
 }
 
-variable "future_log_group_name" {
-  description = "Future Stage 8.2 CloudWatch log group referenced by endpoint policy only."
+variable "log_group_name" {
+  description = "Stage 8 CloudWatch log group owned by the ECS foundation module."
   type        = string
   default     = "/ecs/secure-cicd-pipeline/nonprod"
 
   validation {
-    condition     = var.future_log_group_name == "/ecs/secure-cicd-pipeline/nonprod"
+    condition     = var.log_group_name == "/ecs/secure-cicd-pipeline/nonprod"
     error_message = "Stage 8 runtime logging is scoped to /ecs/secure-cicd-pipeline/nonprod."
   }
 }
