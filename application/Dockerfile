@@ -4,7 +4,8 @@ WORKDIR /build
 
 COPY requirements.txt ./
 
-RUN python -m venv /opt/venv \
+RUN apk add --no-cache 'zlib>=1.3.2-r1' \
+    && python -m venv /opt/venv \
     && /opt/venv/bin/python -m pip install --no-cache-dir --disable-pip-version-check -r requirements.txt \
     && /opt/venv/bin/python -m pip uninstall --yes pip setuptools \
     && rm -rf /opt/venv/lib/python3.14/site-packages/pip* \
@@ -18,7 +19,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN python -m pip uninstall --yes pip setuptools \
+RUN apk add --no-cache 'zlib>=1.3.2-r1' \
+    && python -m pip uninstall --yes pip setuptools \
     && rm -rf /usr/local/lib/python3.14/ensurepip \
         /usr/local/lib/python3.14/site-packages/pip* \
         /usr/local/lib/python3.14/site-packages/setuptools* \
