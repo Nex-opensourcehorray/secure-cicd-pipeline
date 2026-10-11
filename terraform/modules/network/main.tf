@@ -211,25 +211,14 @@ resource "aws_vpc_security_group_ingress_rule" "endpoints_from_task" {
 
 data "aws_iam_policy_document" "ecr_api_endpoint" {
   statement {
-    sid       = "AuthorizationToken"
-    effect    = "Allow"
-    actions   = ["ecr:GetAuthorizationToken"]
-    resources = ["*"]
-
-    principals {
-      type        = "AWS"
-      identifiers = [var.runtime_execution_role_arn]
-    }
-  }
-
-  statement {
-    sid    = "RepositoryPullMetadata"
+    sid    = "RuntimeImagePull"
     effect = "Allow"
     actions = [
       "ecr:BatchGetImage",
       "ecr:GetDownloadUrlForLayer",
+      "ecr:GetAuthorizationToken",
     ]
-    resources = [var.ecr_repository_arn]
+    resources = ["*"]
 
     principals {
       type        = "AWS"
@@ -240,13 +229,14 @@ data "aws_iam_policy_document" "ecr_api_endpoint" {
 
 data "aws_iam_policy_document" "ecr_dkr_endpoint" {
   statement {
-    sid    = "RepositoryImagePull"
+    sid    = "RuntimeImagePull"
     effect = "Allow"
     actions = [
       "ecr:BatchGetImage",
       "ecr:GetDownloadUrlForLayer",
+      "ecr:GetAuthorizationToken",
     ]
-    resources = [var.ecr_repository_arn]
+    resources = ["*"]
 
     principals {
       type        = "AWS"
@@ -263,7 +253,7 @@ data "aws_iam_policy_document" "logs_endpoint" {
       "logs:CreateLogStream",
       "logs:PutLogEvents",
     ]
-    resources = [local.runtime_log_arn]
+    resources = ["*"]
 
     principals {
       type        = "AWS"
