@@ -69,6 +69,7 @@ module "ecs_service" {
   # fail-closed listener exist before ECS attempts to create the service.
   depends_on = [
     module.ecs,
+    module.network,
     module.alb,
   ]
 }
