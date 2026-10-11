@@ -65,7 +65,10 @@ module "ecs_service" {
   target_group_arn       = module.alb.target_group_arn
   tags                   = local.common_tags
 
-  # This explicit module dependency ensures the execution-role policy
-  # attachment exists before ECS can attempt to start the first task.
-  depends_on = [module.ecs]
+  # These explicit module dependencies ensure the execution-role policy and
+  # fail-closed listener exist before ECS attempts to create the service.
+  depends_on = [
+    module.ecs,
+    module.alb,
+  ]
 }

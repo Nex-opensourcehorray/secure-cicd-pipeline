@@ -18,7 +18,17 @@ output "target_group_arn" {
   value       = aws_lb_target_group.this.arn
 }
 
+output "listener_arn" {
+  description = "ARN of the fail-closed HTTP target-group association listener."
+  value       = aws_lb_listener.fail_closed_association.arn
+}
+
+output "listener_port" {
+  description = "Port of the fail-closed target-group association listener."
+  value       = aws_lb_listener.fail_closed_association.port
+}
+
 output "listener_status" {
-  description = "Stage 8.1 listener posture."
-  value       = "DEFERRED"
+  description = "Current listener posture; public ALB security-group ingress remains disabled."
+  value       = "FAIL_CLOSED_HTTP_ASSOCIATION"
 }
