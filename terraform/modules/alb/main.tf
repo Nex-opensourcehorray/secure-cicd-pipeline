@@ -3,7 +3,7 @@ locals {
 }
 
 resource "aws_lb" "this" {
-  #checkov:skip=CKV_AWS_91:Access-log bucket and delivery policy are deferred to Stage 8.7 observability hardening.
+  #checkov:skip=CKV_AWS_91:ALB access logging remains separately gated with the future public-exposure controls; this listener is fail-closed by zero ALB security-group ingress.
   #checkov:skip=CKV_AWS_150:Deletion protection is disabled for approved NonProd cleanup and fixed-cost control.
   #checkov:skip=CKV2_AWS_28:WAF is deferred until the public TLS listener and ingress strategy are approved.
   #checkov:skip=CKV2_AWS_20:Accepted temporary fail-closed control; the association-only HTTP listener has no ALB SG ingress, and HTTPS/domain work is explicitly deferred.

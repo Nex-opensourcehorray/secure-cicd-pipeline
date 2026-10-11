@@ -73,3 +73,21 @@ module "ecs_service" {
     module.alb,
   ]
 }
+
+module "observability" {
+  source = "../../../modules/observability"
+
+  project_name            = var.project_name
+  environment             = var.environment
+  aws_region              = var.aws_region
+  aws_account_id          = var.aws_account_id
+  vpc_id                  = module.network.vpc_id
+  alb_arn_suffix          = module.alb.load_balancer_arn_suffix
+  target_group_arn_suffix = module.alb.target_group_arn_suffix
+  ecs_cluster_name        = module.ecs.cluster_name
+  ecs_cluster_arn         = module.ecs.cluster_arn
+  ecs_service_name        = module.ecs_service.service_name
+  ecr_repository_name     = var.ecr_repository_name
+  flow_log_retention_days = 14
+  tags                    = local.common_tags
+}

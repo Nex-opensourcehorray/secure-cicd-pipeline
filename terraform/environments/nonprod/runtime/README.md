@@ -47,3 +47,17 @@ health.
 
 Public endpoint reachability must remain absent while the ALB security group
 has no ingress rules.
+
+## Stage 8.7-R1 — runtime observability hardening
+
+The runtime root composes a dedicated observability module that adds VPC Flow
+Logs to CloudWatch Logs, service and target alarms, and narrowly scoped ECS and
+Inspector EventBridge rules. All alarms and rules publish to one project SNS
+topic. Terraform intentionally creates no email, SMS, or other human
+subscription; notification delivery remains incomplete until a separately
+approved subscription is configured.
+
+The observability resources do not change the task definition, ECS service,
+ALB listener, security groups, routes, endpoints, task role, or execution-role
+permissions. Public ingress, HTTPS, WAF, ALB access logging, and Container
+Insights remain outside this change and require separate review.

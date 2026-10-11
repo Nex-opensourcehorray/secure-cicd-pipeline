@@ -3,6 +3,11 @@ output "load_balancer_arn" {
   value       = aws_lb.this.arn
 }
 
+output "load_balancer_arn_suffix" {
+  description = "ARN suffix used as the ApplicationELB LoadBalancer metric dimension."
+  value       = aws_lb.this.arn_suffix
+}
+
 output "load_balancer_dns_name" {
   description = "AWS-assigned DNS name of the application load balancer."
   value       = aws_lb.this.dns_name
@@ -16,6 +21,11 @@ output "load_balancer_zone_id" {
 output "target_group_arn" {
   description = "ARN of the future ECS service target group."
   value       = aws_lb_target_group.this.arn
+}
+
+output "target_group_arn_suffix" {
+  description = "ARN suffix used as the ApplicationELB TargetGroup metric dimension."
+  value       = aws_lb_target_group.this.arn_suffix
 }
 
 output "listener_arn" {

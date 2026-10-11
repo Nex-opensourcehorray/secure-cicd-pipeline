@@ -14,7 +14,7 @@ locals {
 }
 
 resource "aws_vpc" "this" {
-  #checkov:skip=CKV2_AWS_11:VPC Flow Logs are explicitly deferred to Stage 8.7 observability hardening.
+  #checkov:skip=CKV2_AWS_11:The composed runtime root attaches a dedicated ALL-traffic aws_flow_log through the observability module; Checkov cannot resolve this cross-module VPC ID edge.
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
   enable_dns_hostnames = true

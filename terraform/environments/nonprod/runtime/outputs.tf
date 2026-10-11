@@ -137,3 +137,53 @@ output "ecs_service_id" {
   description = "Terraform provider ID of the private Fargate ECS service."
   value       = module.ecs_service.service_id
 }
+
+output "flow_log_id" {
+  description = "ID of the Stage 8 VPC Flow Log."
+  value       = module.observability.flow_log_id
+}
+
+output "flow_log_group_name" {
+  description = "Name of the dedicated VPC Flow Logs log group."
+  value       = module.observability.flow_log_group_name
+}
+
+output "flow_log_role_arn" {
+  description = "ARN of the dedicated VPC Flow Logs delivery role."
+  value       = module.observability.flow_log_role_arn
+}
+
+output "runtime_alerts_topic_arn" {
+  description = "ARN of the project runtime and security alert integration topic."
+  value       = module.observability.sns_topic_arn
+}
+
+output "unhealthy_target_alarm_name" {
+  description = "Name of the unhealthy-target CloudWatch alarm."
+  value       = module.observability.unhealthy_target_alarm_name
+}
+
+output "target_5xx_alarm_name" {
+  description = "Name of the target HTTP 5XX CloudWatch alarm."
+  value       = module.observability.target_5xx_alarm_name
+}
+
+output "ecs_cpu_alarm_name" {
+  description = "Name of the ECS CPU utilization alarm."
+  value       = module.observability.cpu_alarm_name
+}
+
+output "ecs_memory_alarm_name" {
+  description = "Name of the ECS memory utilization alarm."
+  value       = module.observability.memory_alarm_name
+}
+
+output "ecs_failure_rule_arn" {
+  description = "ARN of the failure-oriented ECS stopped-task EventBridge rule."
+  value       = module.observability.ecs_failure_rule_arn
+}
+
+output "inspector_finding_rule_arn" {
+  description = "ARN of the project ECR HIGH/CRITICAL Inspector finding rule."
+  value       = module.observability.inspector_rule_arn
+}
