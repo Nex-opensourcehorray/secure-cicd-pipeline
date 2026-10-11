@@ -11,6 +11,7 @@ resource "aws_ecs_task_definition" "this" {
   cpu                      = "256"
   memory                   = "512"
   execution_role_arn       = var.execution_role_arn
+  enable_fault_injection   = false
 
   runtime_platform {
     operating_system_family = "LINUX"
@@ -25,9 +26,14 @@ resource "aws_ecs_task_definition" "this" {
       user                   = "10001:10001"
       privileged             = false
       readonlyRootFilesystem = true
+      environment            = []
+      mountPoints            = []
+      systemControls         = []
+      volumesFrom            = []
 
       linuxParameters = {
         capabilities = {
+          add  = []
           drop = ["ALL"]
         }
       }
