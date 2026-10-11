@@ -185,3 +185,63 @@ not the active design.
 The Git commit SHA is the ECR tag. The verified ECR `sha256:` digest is the
 authoritative immutable image identity. The workflow does not publish or
 overwrite a `latest` tag.
+
+## Stage 9 planned deployment boundary
+
+Stage 9 proposes a second, separately authorized path that promotes an
+existing approved digest to the existing NonProd ECS service. None of the
+controls in this section are implemented by Stage 9.0.
+
+The planned separation is explicit:
+
+```text
+publication workflow != deployment workflow
+publication broker   != deployment broker
+ECR publisher        != ECS deployer
+ECS execution role   != ECS deployer
+```
+
+The existing `.github/workflows/deploy.yml` remains the trusted image
+publication workflow. A future, clearly named deployment workflow will not
+build or push an image; it will accept a trusted-main source commit, resolve
+the commit-addressed ECR tag to one immutable digest, recheck vulnerability
+status, and deploy only the digest-addressed URI.
+
+The proposed identity chain is:
+
+```text
+approved GitHub Environment job
+    -> existing Management GitHub OIDC provider
+    -> dedicated Management deployment broker
+    -> dedicated NonProd ECS deployment role
+    -> one task-definition family and one ECS service
+```
+
+The deployment broker's trust is required to use the exact immutable
+repository Environment subject, audience, numeric owner/repository claims, and
+`main` ref. Its only identity permission will be `sts:AssumeRole` to the exact
+NonProd deployer. The NonProd role will have no ECR write, network mutation,
+IAM administration, general infrastructure, or public-exposure permissions.
+
+The proposed deployer permission boundary includes repository-scoped ECR
+metadata/scan reads, narrowly scoped ECS read/register/update operations, and
+`iam:PassRole` for the exact existing ECS execution role with
+`iam:PassedToService = ecs-tasks.amazonaws.com`. Broad `ecs:*`, broad
+`iam:PassRole`, application task roles, static AWS credentials, mutable image
+tags, and Terraform apply permissions are prohibited.
+
+Terraform will remain the infrastructure owner. The selected future ownership
+model requires Terraform to ignore only the ECS service's `task_definition`
+revision pointer, while continuing to manage the baseline task definition and
+all service, network, load-balancer, IAM, observability, desired-count, and
+security properties. Ignoring `container_definitions` is prohibited.
+
+The existing ECS deployment circuit breaker and rollback remain the rollout
+safety mechanism. The future workflow must serialize deployments, wait for
+stability, verify the running digest and target health, reconfirm private task
+placement and fail-closed ALB ingress, and preserve failure evidence. GitHub
+Environment creation, role creation, Terraform ownership changes, workflow
+implementation, and the first deployment each remain separate approval gates.
+
+See the [Stage 9 continuous deployment design](stage-9-cd-design.md) and
+[Stage 9 threat model](threat-model.md).
