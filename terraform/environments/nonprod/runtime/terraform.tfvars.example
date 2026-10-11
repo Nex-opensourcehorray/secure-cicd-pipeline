@@ -14,3 +14,5 @@ private_subnet_cidrs = [
 
 ecr_repository_name = "secure-cicd-demo"
 log_group_name      = "/ecs/secure-cicd-pipeline/nonprod"
+
+container_image_uri = "119033255630.dkr.ecr.ap-southeast-1.amazonaws.com/secure-cicd-demo@sha256:818e3e445df25cb676535c975fc764af96918507d75b710523c8117706a3e3c3"

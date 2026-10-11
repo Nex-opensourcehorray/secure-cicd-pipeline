@@ -107,3 +107,14 @@ variable "log_group_name" {
     error_message = "Stage 8 runtime logging is scoped to /ecs/secure-cicd-pipeline/nonprod."
   }
 }
+
+variable "container_image_uri" {
+  description = "Approved immutable ECR image URI used by the Stage 8.3 task definition."
+  type        = string
+  default     = "119033255630.dkr.ecr.ap-southeast-1.amazonaws.com/secure-cicd-demo@sha256:818e3e445df25cb676535c975fc764af96918507d75b710523c8117706a3e3c3"
+
+  validation {
+    condition     = var.container_image_uri == "119033255630.dkr.ecr.ap-southeast-1.amazonaws.com/secure-cicd-demo@sha256:818e3e445df25cb676535c975fc764af96918507d75b710523c8117706a3e3c3"
+    error_message = "Stage 8.3 must use the reviewed secure-cicd-demo image digest."
+  }
+}

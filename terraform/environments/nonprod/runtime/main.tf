@@ -49,3 +49,23 @@ module "alb" {
   alb_security_group_id = module.network.alb_security_group_id
   tags                  = local.common_tags
 }
+
+module "ecs_service" {
+  source = "../../../modules/ecs-service"
+
+  project_name           = var.project_name
+  environment            = var.environment
+  aws_region             = var.aws_region
+  cluster_arn            = module.ecs.cluster_arn
+  execution_role_arn     = module.ecs.execution_role_arn
+  container_image_uri    = var.container_image_uri
+  log_group_name         = module.ecs.log_group_name
+  private_subnet_ids     = module.network.private_subnet_ids
+  task_security_group_id = module.network.task_security_group_id
+  target_group_arn       = module.alb.target_group_arn
+  tags                   = local.common_tags
+
+  # This explicit module dependency ensures the execution-role policy
+  # attachment exists before ECS can attempt to start the first task.
+  depends_on = [module.ecs]
+}

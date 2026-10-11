@@ -107,3 +107,23 @@ output "ecs_log_group_name" {
   description = "Name of the ECS application log group."
   value       = module.ecs.log_group_name
 }
+
+output "task_definition_arn" {
+  description = "Full ARN of the digest-pinned ECS task-definition revision."
+  value       = module.ecs_service.task_definition_arn
+}
+
+output "task_definition_family" {
+  description = "Family of the digest-pinned ECS task definition."
+  value       = module.ecs_service.task_definition_family
+}
+
+output "ecs_service_name" {
+  description = "Name of the private Fargate ECS service."
+  value       = module.ecs_service.service_name
+}
+
+output "ecs_service_id" {
+  description = "Terraform provider ID of the private Fargate ECS service."
+  value       = module.ecs_service.service_id
+}
