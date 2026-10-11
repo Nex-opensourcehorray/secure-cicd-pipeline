@@ -10,3 +10,5 @@ github_repository_id = "1409968457"
 github_branch        = "main"
 
 nonprod_publisher_role_arn = "arn:aws:iam::119033255630:role/secure-cicd-pipeline-nonprod-ecr-publisher"
+nonprod_deployer_role_arn  = "arn:aws:iam::119033255630:role/secure-cicd-pipeline-nonprod-ecs-deployer"
+deployment_environment     = "nonprod"
