@@ -133,3 +133,8 @@ Control status and validation evidence are recorded in
 [Stage 8 runtime evidence](stage-8-runtime-evidence.md). The
 [threat model](threat-model.md) remains a Stage 9 input and will be extended
 for continuous-deployment threats rather than being treated as complete here.
+
+The proposed continuous-deployment trust boundary, dedicated identities, and
+Terraform/CD ownership seam are documented separately in the
+[Stage 9 continuous deployment design](stage-9-cd-design.md). That design does
+not alter the implemented Stage 8 runtime or authorize deployment.
