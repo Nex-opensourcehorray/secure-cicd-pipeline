@@ -78,8 +78,18 @@ output "target_group_arn" {
   value       = module.alb.target_group_arn
 }
 
+output "listener_arn" {
+  description = "ARN of the fail-closed HTTP target-group association listener."
+  value       = module.alb.listener_arn
+}
+
+output "listener_port" {
+  description = "Port of the fail-closed target-group association listener."
+  value       = module.alb.listener_port
+}
+
 output "listener_status" {
-  description = "Stage 8.1 listener posture."
+  description = "Current listener posture; public ALB security-group ingress remains disabled."
   value       = module.alb.listener_status
 }
 

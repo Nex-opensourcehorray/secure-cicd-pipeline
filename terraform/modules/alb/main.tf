@@ -6,6 +6,7 @@ resource "aws_lb" "this" {
   #checkov:skip=CKV_AWS_91:Access-log bucket and delivery policy are deferred to Stage 8.7 observability hardening.
   #checkov:skip=CKV_AWS_150:Deletion protection is disabled for approved NonProd cleanup and fixed-cost control.
   #checkov:skip=CKV2_AWS_28:WAF is deferred until the public TLS listener and ingress strategy are approved.
+  #checkov:skip=CKV2_AWS_20:Accepted temporary fail-closed control; the association-only HTTP listener has no ALB SG ingress, and HTTPS/domain work is explicitly deferred.
   name                       = "${local.name_prefix}-alb"
   internal                   = false
   load_balancer_type         = "application"
@@ -45,6 +46,19 @@ resource "aws_lb_target_group" "this" {
   })
 }
 
-# Listener creation is intentionally deferred until an ACM certificate and
-# domain strategy are approved. The ALB security group therefore has no public
-# ingress rule in this stage.
+# This HTTP listener exists only to associate the target group with the ALB
+# before ECS creates the service. The ALB security group intentionally has no
+# ingress rules, so the listener remains unreachable from public networks.
+# Public TLS, HTTP-to-HTTPS redirection, and ingress remain separately gated.
+resource "aws_lb_listener" "fail_closed_association" {
+  #checkov:skip=CKV_AWS_2:Accepted temporary fail-closed control; zero ALB SG ingress makes this association-only HTTP listener unreachable, and HTTPS/domain work is deferred.
+  #checkov:skip=CKV_AWS_103:Accepted temporary fail-closed control; this unreachable HTTP association listener has no TLS policy until separately approved HTTPS/domain work.
+  load_balancer_arn = aws_lb.this.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.this.arn
+  }
+}
