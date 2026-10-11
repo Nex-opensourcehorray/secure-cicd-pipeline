@@ -41,6 +41,27 @@ variable "nonprod_publisher_role_arn" {
   }
 }
 
+variable "nonprod_deployer_role_arn" {
+  description = "Reviewed ARN of the only NonProd ECS deployer role the deployment broker may assume."
+  type        = string
+
+  validation {
+    condition     = var.nonprod_deployer_role_arn == "arn:aws:iam::119033255630:role/secure-cicd-pipeline-nonprod-ecs-deployer"
+    error_message = "nonprod_deployer_role_arn must identify the reviewed NonProd ECS deployer role."
+  }
+}
+
+variable "deployment_environment" {
+  description = "GitHub Environment bound into the planned deployment OIDC subject."
+  type        = string
+  default     = "nonprod"
+
+  validation {
+    condition     = var.deployment_environment == "nonprod"
+    error_message = "The Stage 9 deployment broker is restricted to the nonprod GitHub Environment."
+  }
+}
+
 variable "github_owner" {
   description = "GitHub repository owner name."
   type        = string

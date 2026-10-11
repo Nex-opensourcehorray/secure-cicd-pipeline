@@ -6,3 +6,11 @@ role_name    = "secure-cicd-pipeline-nonprod-ecr-publisher"
 
 management_broker_role_arn = "arn:aws:iam::191125774822:role/secure-cicd-pipeline-nonprod-github-ecr-publisher"
 ecr_repository_arn         = "arn:aws:ecr:ap-southeast-1:119033255630:repository/secure-cicd-demo"
+
+ecs_deployer_role_name                  = "secure-cicd-pipeline-nonprod-ecs-deployer"
+management_deployment_broker_role_arn   = "arn:aws:iam::191125774822:role/secure-cicd-pipeline-nonprod-github-ecs-deployer"
+ecs_cluster_arn                         = "arn:aws:ecs:ap-southeast-1:119033255630:cluster/secure-cicd-pipeline-nonprod"
+ecs_service_arn                         = "arn:aws:ecs:ap-southeast-1:119033255630:service/secure-cicd-pipeline-nonprod/secure-cicd-pipeline-nonprod"
+ecs_task_definition_arn_pattern         = "arn:aws:ecs:ap-southeast-1:119033255630:task-definition/secure-cicd-pipeline-nonprod:*"
+ecs_task_arn_pattern                    = "arn:aws:ecs:ap-southeast-1:119033255630:task/secure-cicd-pipeline-nonprod/*"
+ecs_execution_role_arn                  = "arn:aws:iam::119033255630:role/secure-cicd-pipeline-nonprod-ecs-execution"

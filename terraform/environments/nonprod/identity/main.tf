@@ -64,3 +64,17 @@ resource "aws_iam_role_policy_attachment" "ecr_publish" {
   role       = aws_iam_role.ecr_publisher.name
   policy_arn = aws_iam_policy.ecr_publish.arn
 }
+
+module "ecs_deployer" {
+  source = "../../../modules/ecs-deployer"
+
+  role_name                             = var.ecs_deployer_role_name
+  management_deployment_broker_role_arn = var.management_deployment_broker_role_arn
+  ecr_repository_arn                    = var.ecr_repository_arn
+  ecs_cluster_arn                       = var.ecs_cluster_arn
+  ecs_service_arn                       = var.ecs_service_arn
+  ecs_task_definition_arn_pattern       = var.ecs_task_definition_arn_pattern
+  ecs_task_arn_pattern                  = var.ecs_task_arn_pattern
+  ecs_execution_role_arn                = var.ecs_execution_role_arn
+  tags                                  = local.common_tags
+}
