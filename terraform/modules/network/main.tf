@@ -122,7 +122,7 @@ resource "aws_security_group" "alb" {
 }
 
 resource "aws_security_group" "task" {
-  #checkov:skip=CKV2_AWS_5:Attachment is intentionally deferred until the Stage 8.2 ECS task resource exists.
+  #checkov:skip=CKV2_AWS_5:Attached to the Stage 8.3 ECS service through the composed runtime root; Checkov cannot resolve the cross-module variable edge.
   name        = "${local.name_prefix}-task-sg"
   description = "Future ECS task traffic restricted to ALB and private AWS endpoints"
   vpc_id      = aws_vpc.this.id
