@@ -210,6 +210,7 @@ resource "aws_vpc_security_group_ingress_rule" "endpoints_from_task" {
 }
 
 data "aws_iam_policy_document" "ecr_api_endpoint" {
+  #checkov:skip=CKV_AWS_356:AWS ECR VPC endpoint pull/token policies document Resource "*"; the exact ECS execution-role Principal and its secure-cicd-demo-scoped identity policy provide compensating controls.
   statement {
     sid    = "RuntimeImagePull"
     effect = "Allow"
@@ -228,6 +229,7 @@ data "aws_iam_policy_document" "ecr_api_endpoint" {
 }
 
 data "aws_iam_policy_document" "ecr_dkr_endpoint" {
+  #checkov:skip=CKV_AWS_356:AWS ECR VPC endpoint pull/token policies document Resource "*"; the exact ECS execution-role Principal and its secure-cicd-demo-scoped identity policy provide compensating controls.
   statement {
     sid    = "RuntimeImagePull"
     effect = "Allow"
@@ -246,6 +248,8 @@ data "aws_iam_policy_document" "ecr_dkr_endpoint" {
 }
 
 data "aws_iam_policy_document" "logs_endpoint" {
+  #checkov:skip=CKV_AWS_356:AWS CloudWatch Logs VPC endpoint examples use Resource "*" for log delivery; the exact ECS execution-role Principal and its Stage 8 log-group-scoped identity policy provide compensating controls.
+  #checkov:skip=CKV_AWS_111:AWS CloudWatch Logs VPC endpoint examples use Resource "*" for CreateLogStream/PutLogEvents; the exact ECS execution-role Principal and its Stage 8 log-group-scoped identity policy provide compensating controls.
   statement {
     sid    = "FutureRuntimeLogDelivery"
     effect = "Allow"
