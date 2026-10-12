@@ -1,0 +1,330 @@
+name: Deploy approved image to NonProd ECS
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full 40-character lowercase Git commit SHA already published to ECR
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ecs-deployment-nonprod
+  cancel-in-progress: false
+
+jobs:
+  validate-source:
+    name: Validate trusted source and publication provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+
+    steps:
+      - name: Guard trusted GitHub context and source format
+        id: source
+        shell: bash
+        env:
+          ACTUAL_REPOSITORY: ${{ github.repository }}
+          ACTUAL_REPOSITORY_ID: ${{ github.repository_id }}
+          ACTUAL_OWNER_ID: ${{ github.repository_owner_id }}
+          ACTUAL_REF: ${{ github.ref }}
+          ACTUAL_REF_TYPE: ${{ github.ref_type }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          [[ "$ACTUAL_REPOSITORY" == "Nex-opensourcehorray/secure-cicd-pipeline" ]]
+          [[ "$ACTUAL_REPOSITORY_ID" == "1409968457" ]]
+          [[ "$ACTUAL_OWNER_ID" == "82328818" ]]
+          [[ "$ACTUAL_REF" == "refs/heads/main" ]]
+          [[ "$ACTUAL_REF_TYPE" == "branch" ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check out trusted current main source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Validate ancestry and trusted workflow evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          git cat-file -e "${SOURCE_SHA}^{commit}"
+          git merge-base --is-ancestor "$SOURCE_SHA" "$GITHUB_SHA"
+
+          require_successful_run() {
+            local workflow_file="$1"
+            local expected_event="$2"
+            local response
+            local count
+
+            response="$(gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_file}/runs" \
+              -f "head_sha=$SOURCE_SHA" \
+              -f status=success \
+              -f per_page=100)"
+            count="$(jq --arg sha "$SOURCE_SHA" --arg event "$expected_event" '
+              [
+                .workflow_runs[]
+                | select(
+                    .head_sha == $sha and
+                    .head_branch == "main" and
+                    .status == "completed" and
+                    .conclusion == "success" and
+                    .event == $event
+                  )
+              ]
+              | length
+            ' <<<"$response")"
+            [[ "$count" -ge 1 ]]
+          }
+
+          require_successful_run "ci.yml" "push"
+          require_successful_run "security.yml" "push"
+          require_successful_run "deploy.yml" "workflow_dispatch"
+
+          {
+            echo "## Deployment source provenance"
+            echo
+            echo "- Source SHA: \`$SOURCE_SHA\`"
+            echo "- Trusted main ancestor: PASS"
+            echo "- CI: PASS"
+            echo "- Security: PASS"
+            echo "- Trusted image publication: PASS"
+            echo "- Candidate code executed: NO"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  validate-deployment-candidate:
+    name: Validate deployment candidate and current runtime
+    needs: validate-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: nonprod
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_PAGER: ""
+      SOURCE_SHA: ${{ needs.validate-source.outputs.source_sha }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_MANAGEMENT_ACCOUNT_ID: ${{ vars.AWS_MANAGEMENT_ACCOUNT_ID }}
+      AWS_NONPROD_ACCOUNT_ID: ${{ vars.AWS_NONPROD_ACCOUNT_ID }}
+      AWS_MANAGEMENT_DEPLOY_ROLE_ARN: ${{ vars.AWS_MANAGEMENT_DEPLOY_ROLE_ARN }}
+      AWS_NONPROD_ECS_DEPLOY_ROLE_ARN: ${{ vars.AWS_NONPROD_ECS_DEPLOY_ROLE_ARN }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+      ECS_CLUSTER_NAME: ${{ vars.ECS_CLUSTER_NAME }}
+      ECS_SERVICE_NAME: ${{ vars.ECS_SERVICE_NAME }}
+      ECS_CONTAINER_NAME: ${{ vars.ECS_CONTAINER_NAME }}
+      ECS_EXECUTION_ROLE_ARN: ${{ vars.ECS_EXECUTION_ROLE_ARN }}
+
+    steps:
+      - name: Check out trusted workflow helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate fixed deployment metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$AWS_REGION" == "ap-southeast-1" ]]
+          [[ "$AWS_MANAGEMENT_ACCOUNT_ID" == "191125774822" ]]
+          [[ "$AWS_NONPROD_ACCOUNT_ID" == "119033255630" ]]
+          [[ "$AWS_MANAGEMENT_DEPLOY_ROLE_ARN" == "arn:aws:iam::191125774822:role/secure-cicd-pipeline-nonprod-github-ecs-deployer" ]]
+          [[ "$AWS_NONPROD_ECS_DEPLOY_ROLE_ARN" == "arn:aws:iam::119033255630:role/secure-cicd-pipeline-nonprod-ecs-deployer" ]]
+          [[ "$ECR_REPOSITORY" == "secure-cicd-demo" ]]
+          [[ "$ECS_CLUSTER_NAME" == "secure-cicd-pipeline-nonprod" ]]
+          [[ "$ECS_SERVICE_NAME" == "secure-cicd-pipeline-nonprod" ]]
+          [[ "$ECS_CONTAINER_NAME" == "secure-cicd-demo" ]]
+          [[ "$ECS_EXECUTION_ROLE_ARN" == "arn:aws:iam::119033255630:role/secure-cicd-pipeline-nonprod-ecs-execution" ]]
+
+      - name: Authenticate to the Management deployment broker
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_MANAGEMENT_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_MANAGEMENT_ACCOUNT_ID }}
+          role-session-name: ecs-deploy-mgmt-${{ github.run_id }}
+
+      - name: Verify Management deployment identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          caller_account="$(aws sts get-caller-identity --query Account --output text)"
+          caller_arn="$(aws sts get-caller-identity --query Arn --output text)"
+          [[ "$caller_account" == "$AWS_MANAGEMENT_ACCOUNT_ID" ]]
+          case "$caller_arn" in
+            arn:aws:sts::191125774822:assumed-role/secure-cicd-pipeline-nonprod-github-ecs-deployer/*) ;;
+            *) exit 1 ;;
+          esac
+
+      - name: Chain into the NonProd deployment role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_NONPROD_ECS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_NONPROD_ACCOUNT_ID }}
+          role-chaining: true
+          role-skip-session-tagging: true
+          role-session-name: ecs-deploy-nonprod-${{ github.run_id }}
+
+      - name: Validate immutable candidate and runtime invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          caller_account="$(aws sts get-caller-identity --query Account --output text)"
+          caller_arn="$(aws sts get-caller-identity --query Arn --output text)"
+          [[ "$caller_account" == "$AWS_NONPROD_ACCOUNT_ID" ]]
+          case "$caller_arn" in
+            arn:aws:sts::119033255630:assumed-role/secure-cicd-pipeline-nonprod-ecs-deployer/*) ;;
+            *) exit 1 ;;
+          esac
+
+          work_dir="$(mktemp -d "$RUNNER_TEMP/ecs-preflight.XXXXXX")"
+          chmod 700 "$work_dir"
+          trap 'rm -rf "$work_dir"' EXIT
+
+          run_aws_json() {
+            local output="$1"
+            shift
+            local error_file="$work_dir/aws-error"
+            local exception
+            local message
+
+            : > "$error_file"
+            if ! "$@" > "$output" 2> "$error_file"; then
+              exception="$(
+                sed -nE 's/^.*An error occurred \(([^)]+)\).*$/\1/p' "$error_file" |
+                  head -n 1
+              )"
+              message="$(
+                sed -nE 's/^.*An error occurred \([^)]+\).*: (.*)$/\1/p' "$error_file" |
+                  head -n 1
+              )"
+              if [[ -n "$exception" && -n "$message" ]]; then
+                printf 'AWS read failed (%s): %.500s\n' "$exception" "$message" >&2
+              else
+                echo "AWS read failed with an unclassified AWS CLI error." >&2
+              fi
+              exit 1
+            fi
+          }
+
+          candidate_json="$work_dir/candidate.json"
+          candidate_scan_json="$work_dir/candidate-scan.json"
+          candidate_scan_result="$work_dir/candidate-scan-result.json"
+          service_json="$work_dir/service.json"
+          task_definition_json="$work_dir/task-definition.json"
+          runtime_result="$work_dir/runtime-result.json"
+          rollback_scan_json="$work_dir/rollback-scan.json"
+          rollback_scan_result="$work_dir/rollback-scan-result.json"
+
+          run_aws_json "$candidate_json" aws ecr describe-images \
+            --region "$AWS_REGION" \
+            --registry-id "$AWS_NONPROD_ACCOUNT_ID" \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=$SOURCE_SHA" \
+            --output json
+          [[ "$(jq '.imageDetails | length' "$candidate_json")" == "1" ]]
+          jq -e --arg source "$SOURCE_SHA" \
+            '.imageDetails[0].imageTags | index($source) != null' \
+            "$candidate_json" >/dev/null
+          candidate_digest="$(jq -r '.imageDetails[0].imageDigest' "$candidate_json")"
+          [[ "$candidate_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          candidate_uri="${AWS_NONPROD_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@${candidate_digest}"
+
+          run_aws_json "$candidate_scan_json" aws ecr describe-image-scan-findings \
+            --region "$AWS_REGION" \
+            --registry-id "$AWS_NONPROD_ACCOUNT_ID" \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-id "imageDigest=$candidate_digest" \
+            --output json
+          python3 .github/scripts/validate_ecs_deployment_preflight.py scan \
+            --input "$candidate_scan_json" \
+            --label candidate > "$candidate_scan_result"
+
+          run_aws_json "$service_json" aws ecs describe-services \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER_NAME" \
+            --services "$ECS_SERVICE_NAME" \
+            --output json
+          jq -e '(.failures | length) == 0 and (.services | length) == 1' \
+            "$service_json" >/dev/null
+          current_task_definition="$(jq -r '.services[0].taskDefinition' "$service_json")"
+          task_prefix="arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:task-definition/secure-cicd-pipeline-nonprod:"
+          [[ "$current_task_definition" == "$task_prefix"* ]]
+          [[ "${current_task_definition#"$task_prefix"}" =~ ^[1-9][0-9]*$ ]]
+
+          run_aws_json "$task_definition_json" aws ecs describe-task-definition \
+            --region "$AWS_REGION" \
+            --task-definition "$current_task_definition" \
+            --output json
+          python3 .github/scripts/validate_ecs_deployment_preflight.py runtime \
+            --service "$service_json" \
+            --task-definition "$task_definition_json" \
+            --expected-cluster-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:cluster/${ECS_CLUSTER_NAME}" \
+            --expected-service-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:service/${ECS_CLUSTER_NAME}/${ECS_SERVICE_NAME}" \
+            --expected-service-name "$ECS_SERVICE_NAME" \
+            --expected-task-family "secure-cicd-pipeline-nonprod" \
+            --expected-container-name "$ECS_CONTAINER_NAME" \
+            --expected-execution-role-arn "$ECS_EXECUTION_ROLE_ARN" \
+            --expected-image-prefix "${AWS_NONPROD_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@" \
+            --expected-region "$AWS_REGION" > "$runtime_result"
+
+          rollback_digest="$(jq -r '.current_digest' "$runtime_result")"
+          [[ "$rollback_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          run_aws_json "$rollback_scan_json" aws ecr describe-image-scan-findings \
+            --region "$AWS_REGION" \
+            --registry-id "$AWS_NONPROD_ACCOUNT_ID" \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-id "imageDigest=$rollback_digest" \
+            --output json
+          python3 .github/scripts/validate_ecs_deployment_preflight.py scan \
+            --input "$rollback_scan_json" \
+            --label rollback > "$rollback_scan_result"
+
+          candidate_high="$(jq -r '.high' "$candidate_scan_result")"
+          candidate_critical="$(jq -r '.critical' "$candidate_scan_result")"
+          rollback_high="$(jq -r '.high' "$rollback_scan_result")"
+          rollback_critical="$(jq -r '.critical' "$rollback_scan_result")"
+
+          {
+            echo "## Deployment candidate preflight"
+            echo
+            echo "- Source SHA: \`$SOURCE_SHA\`"
+            echo "- Trusted main ancestor: PASS"
+            echo "- CI: PASS"
+            echo "- Security: PASS"
+            echo "- Trusted image publication: PASS"
+            echo "- Candidate ECR digest: \`$candidate_digest\`"
+            echo "- Candidate runtime URI is digest-addressed: PASS"
+            echo "- Candidate HIGH: $candidate_high"
+            echo "- Candidate CRITICAL: $candidate_critical"
+            echo "- Current rollback digest: \`$rollback_digest\`"
+            echo "- Rollback HIGH: $rollback_high"
+            echo "- Rollback CRITICAL: $rollback_critical"
+            echo "- Service: STABLE"
+            echo "- Task definition invariants: PASS"
+            echo "- Candidate image selected: \`${candidate_uri%%@*}@${candidate_digest}\`"
+            echo "- Deployment mutation: NOT IMPLEMENTED"
+          } >> "$GITHUB_STEP_SUMMARY"

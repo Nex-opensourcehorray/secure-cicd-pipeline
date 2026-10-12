@@ -1,8 +1,26 @@
 # Stage 9 Continuous Deployment Design
 
-> Status: **DESIGN ONLY**. Stage 9.0 changes no workflow, Terraform source,
-> GitHub setting, IAM policy, AWS resource, task definition, or ECS service.
-> Controls described as planned or required are not yet implemented.
+> Status: **PARTIALLY IMPLEMENTED**. Stage 9.1 deployment identity controls are
+> operationally validated. Stage 9.2 implements a source-only, read-only
+> deployment preflight; it does not implement or authorize an ECS deployment.
+
+## Implementation status
+
+- **Stage 9.1:** COMPLETE and operationally validated by live role-chain run
+  `38243686885`.
+- **Stage 9.2:** deployment workflow source foundation implemented. It validates
+  trusted-main provenance, exact trusted publication evidence, immutable ECR
+  identity, current scan state, and current ECS security invariants.
+- **Deployment mutation:** NOT IMPLEMENTED.
+- **Environment approval protection:** NOT IMPLEMENTED; Stage 9.3 owns this
+  GitHub setting.
+- **Terraform/CD ownership seam:** NOT IMPLEMENTED; Terraform still owns the
+  ECS service task-definition pointer.
+- **First ECS deployment:** NOT EXECUTED.
+
+The Stage 9.2 workflow must not be dispatched until Stage 9.3 configures and
+reviews the required `nonprod` Environment metadata and protections. Later
+task-definition registration and service update behavior remain Stage 9.4.
 
 ## Scope
 
@@ -146,15 +164,15 @@ permission to weaken or wildcard the trust if a claim differs.
 
 Reference: [GitHub OIDC subject and immutable-claim syntax](https://docs.github.com/en/actions/reference/security/oidc).
 
-### Stage 9.1A implementation status
+### Stage 9.1 implementation status
 
-The dedicated deployment IAM source is merged but remains unapplied.
-`.github/workflows/deployment-trust-check.yml` provides a manual,
-Environment-bound token claim check without requesting AWS credentials or
-assuming a role. The `nonprod` GitHub Environment does not yet exist at source
-creation time and the workflow must not be dispatched until that separate
-settings action is approved and completed. Deployment IAM creation remains
-blocked until the live token's mandatory claims match the trust source.
+The dedicated Management deployment broker and NonProd ECS deployer are
+applied. Their Environment-bound OIDC and cross-account role chain were
+operationally validated by read-only workflow run `38243686885`. The run
+proved Management and NonProd identity, ECR enhanced-scan reads, and ECS
+service/task reads without exposing a raw OIDC token or AWS credential value.
+The deployment workflow remains source-only in Stage 9.2; this completed
+identity foundation is not authorization to mutate ECS.
 
 ## Deployment Role Permission Model
 
