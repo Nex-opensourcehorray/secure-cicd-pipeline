@@ -1,0 +1,206 @@
+name: Validate deployment OIDC claims
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-claims:
+    name: Validate nonprod Environment token claims
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: nonprod
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Enforce trusted claim-check context
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          require_context() {
+            local name="$1"
+            local actual="$2"
+            local expected="$3"
+
+            if [ "$actual" != "$expected" ]; then
+              printf 'Runner context mismatch: %s\nExpected: %s\nActual: %s\n' \
+                "$name" "$expected" "$actual" >&2
+              exit 1
+            fi
+          }
+
+          require_context GITHUB_REPOSITORY \
+            "${GITHUB_REPOSITORY:-<missing>}" \
+            "Nex-opensourcehorray/secure-cicd-pipeline"
+          require_context GITHUB_REF \
+            "${GITHUB_REF:-<missing>}" \
+            "refs/heads/main"
+          require_context GITHUB_REF_TYPE \
+            "${GITHUB_REF_TYPE:-<missing>}" \
+            "branch"
+          require_context GITHUB_REPOSITORY_ID \
+            "${GITHUB_REPOSITORY_ID:-<missing>}" \
+            "1409968457"
+          require_context GITHUB_REPOSITORY_OWNER_ID \
+            "${GITHUB_REPOSITORY_OWNER_ID:-<missing>}" \
+            "82328818"
+
+      - name: Request token and validate selected claims
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import sys
+          import urllib.parse
+          import urllib.request
+
+
+          def stop(message):
+              print(message, file=sys.stderr)
+              raise SystemExit(1)
+
+
+          def display(value):
+              if value is None:
+                  return "<missing>"
+              return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+
+
+          def claim_mismatch(name, expected, actual):
+              print(f"OIDC claim mismatch: {name}", file=sys.stderr)
+              print("Expected:", file=sys.stderr)
+              print(display(expected), file=sys.stderr)
+              print("Actual:", file=sys.stderr)
+              print(display(actual), file=sys.stderr)
+              raise SystemExit(1)
+
+
+          request_url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL")
+          request_token = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+          if not request_url or not request_token:
+              stop("GitHub OIDC request environment is unavailable.")
+
+          separator = "&" if "?" in request_url else "?"
+          audience_query = urllib.parse.urlencode({"audience": "sts.amazonaws.com"})
+          token_url = f"{request_url}{separator}{audience_query}"
+          request = urllib.request.Request(
+              token_url,
+              headers={
+                  "Accept": "application/json",
+                  "Authorization": f"bearer {request_token}",
+              },
+          )
+
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  response_body = response.read()
+          except Exception:
+              stop("GitHub OIDC token request failed.")
+
+          try:
+              token_response = json.loads(response_body)
+              encoded_token = token_response["value"]
+              if not isinstance(encoded_token, str):
+                  stop("GitHub OIDC endpoint returned an invalid token response.")
+              token_parts = encoded_token.split(".")
+              if len(token_parts) != 3:
+                  stop("GitHub OIDC endpoint returned an invalid token format.")
+
+              payload_segment = token_parts[1]
+              payload_segment += "=" * (-len(payload_segment) % 4)
+              claims = json.loads(base64.urlsafe_b64decode(payload_segment))
+              if not isinstance(claims, dict):
+                  stop("GitHub OIDC token payload is not a JSON object.")
+          except Exception:
+              stop("GitHub OIDC endpoint returned an invalid token response.")
+          finally:
+              response_body = b""
+              request_token = ""
+
+          encoded_token = ""
+          token_response = None
+          token_parts = []
+          payload_segment = ""
+
+          expected_claims = {
+              "iss": "https://token.actions.githubusercontent.com",
+              "sub": (
+                  "repo:Nex-opensourcehorray@82328818/"
+                  "secure-cicd-pipeline@1409968457:environment:nonprod"
+              ),
+              "repository": "Nex-opensourcehorray/secure-cicd-pipeline",
+              "repository_owner_id": "82328818",
+              "repository_id": "1409968457",
+              "ref": "refs/heads/main",
+          }
+
+          for claim_name, expected_value in expected_claims.items():
+              actual_value = claims.get(claim_name)
+              if actual_value != expected_value:
+                  claim_mismatch(claim_name, expected_value, actual_value)
+
+          actual_audience = claims.get("aud")
+          if isinstance(actual_audience, str):
+              normalized_audience = [actual_audience]
+          elif (
+              isinstance(actual_audience, list)
+              and all(isinstance(item, str) for item in actual_audience)
+          ):
+              normalized_audience = actual_audience
+          else:
+              normalized_audience = []
+
+          expected_audience = ["sts.amazonaws.com"]
+          if normalized_audience != expected_audience:
+              claim_mismatch("aud", expected_audience, actual_audience)
+
+          supporting_claims = (
+              "ref_type",
+              "environment",
+              "sha",
+              "workflow",
+              "workflow_ref",
+              "job_workflow_ref",
+              "repository_owner",
+          )
+          for claim_name in supporting_claims:
+              print(f"Supporting claim {claim_name}: {display(claims.get(claim_name))}")
+
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if not summary_path:
+              stop("GITHUB_STEP_SUMMARY is unavailable.")
+
+          summary_claims = (
+              ("issuer", claims["iss"]),
+              ("audience", "sts.amazonaws.com"),
+              ("subject", claims["sub"]),
+              ("repository", claims["repository"]),
+              ("repository_owner_id", claims["repository_owner_id"]),
+              ("repository_id", claims["repository_id"]),
+              ("ref", claims["ref"]),
+              ("ref_type", claims.get("ref_type")),
+              ("environment", claims.get("environment")),
+              ("workflow_ref", claims.get("workflow_ref")),
+          )
+
+          with open(summary_path, "a", encoding="utf-8") as summary:
+              summary.write("## Deployment OIDC claim validation\n\n")
+              summary.write("```text\n")
+              for claim_name, claim_value in summary_claims:
+                  if claim_value is not None:
+                      summary.write(f"{claim_name}: {display(claim_value)}\n")
+              summary.write("claim validation result: PASS\n")
+              summary.write("```\n")
+
+          print("Selected GitHub OIDC claims match the deployment trust source.")
+          PY

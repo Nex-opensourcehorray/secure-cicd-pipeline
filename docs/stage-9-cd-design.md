@@ -146,6 +146,16 @@ permission to weaken or wildcard the trust if a claim differs.
 
 Reference: [GitHub OIDC subject and immutable-claim syntax](https://docs.github.com/en/actions/reference/security/oidc).
 
+### Stage 9.1A implementation status
+
+The dedicated deployment IAM source is merged but remains unapplied.
+`.github/workflows/deployment-trust-check.yml` provides a manual,
+Environment-bound token claim check without requesting AWS credentials or
+assuming a role. The `nonprod` GitHub Environment does not yet exist at source
+creation time and the workflow must not be dispatched until that separate
+settings action is approved and completed. Deployment IAM creation remains
+blocked until the live token's mandatory claims match the trust source.
+
 ## Deployment Role Permission Model
 
 Placeholders below represent exact reviewed ARNs. A future policy must not
