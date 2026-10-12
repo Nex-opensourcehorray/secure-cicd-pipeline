@@ -140,7 +140,20 @@ jobs:
           elif grep -Eq 'ScanNotFoundException|UnsupportedImageTypeException' "$scan_error"; then
             scan_result="NOT EXERCISED"
           else
-            echo "Image scan metadata request failed." >&2
+            scan_exception="$(
+              sed -nE 's/^.*An error occurred \(([^)]+)\).*$/\1/p' "$scan_error" |
+                head -n 1
+            )"
+            scan_message="$(
+              sed -nE 's/^.*An error occurred \([^)]+\).*: (.*)$/\1/p' "$scan_error" |
+                head -n 1
+            )"
+            if [[ -n "$scan_exception" && -n "$scan_message" ]]; then
+              printf 'ECR scan metadata request failed (%s): %.500s\n' \
+                "$scan_exception" "$scan_message" >&2
+            else
+              echo "ECR scan metadata request failed with an unclassified AWS CLI error." >&2
+            fi
             exit 1
           fi
 

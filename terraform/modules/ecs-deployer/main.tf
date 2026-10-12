@@ -34,6 +34,19 @@ data "aws_iam_policy_document" "deployment" {
     resources = [var.ecr_repository_arn]
   }
 
+  # ECR retrieves enhanced scan results through these two Amazon Inspector
+  # list operations. CloudTrail confirmed both calls for the approved image.
+  # Neither action supports resource-level permissions.
+  statement {
+    sid    = "ReadEnhancedECRScanMetadata"
+    effect = "Allow"
+    actions = [
+      "inspector2:ListCoverage",
+      "inspector2:ListFindings",
+    ]
+    resources = ["*"]
+  }
+
   statement {
     sid       = "DescribeExactECSService"
     effect    = "Allow"
