@@ -1,0 +1,188 @@
+name: Validate deployment role chain
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ap-southeast-1
+  MANAGEMENT_ACCOUNT_ID: "191125774822"
+  MANAGEMENT_ROLE_ARN: arn:aws:iam::191125774822:role/secure-cicd-pipeline-nonprod-github-ecs-deployer
+  NONPROD_ACCOUNT_ID: "119033255630"
+  NONPROD_ROLE_ARN: arn:aws:iam::119033255630:role/secure-cicd-pipeline-nonprod-ecs-deployer
+  ECR_REPOSITORY: secure-cicd-demo
+  ECR_REGISTRY: 119033255630.dkr.ecr.ap-southeast-1.amazonaws.com
+  ECS_CLUSTER: secure-cicd-pipeline-nonprod
+  ECS_SERVICE: secure-cicd-pipeline-nonprod
+  ECS_TASK_FAMILY: secure-cicd-pipeline-nonprod
+  ECS_CONTAINER: secure-cicd-demo
+
+jobs:
+  validate-role-chain:
+    name: Validate read-only deployment role chain
+    runs-on: ubuntu-latest
+    environment:
+      name: nonprod
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Guard trusted GitHub context
+        shell: bash
+        env:
+          ACTUAL_REPOSITORY: ${{ github.repository }}
+          ACTUAL_REPOSITORY_ID: ${{ github.repository_id }}
+          ACTUAL_OWNER_ID: ${{ github.repository_owner_id }}
+          ACTUAL_REF: ${{ github.ref }}
+          ACTUAL_REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+
+          [[ "$ACTUAL_REPOSITORY" == "Nex-opensourcehorray/secure-cicd-pipeline" ]]
+          [[ "$ACTUAL_REPOSITORY_ID" == "1409968457" ]]
+          [[ "$ACTUAL_OWNER_ID" == "82328818" ]]
+          [[ "$ACTUAL_REF" == "refs/heads/main" ]]
+          [[ "$ACTUAL_REF_TYPE" == "branch" ]]
+
+      - name: Authenticate to the Management deployment broker
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ env.MANAGEMENT_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ env.MANAGEMENT_ACCOUNT_ID }}
+          role-session-name: s9-management-${{ github.run_id }}
+
+      - name: Verify Management broker identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          caller_account="$(aws sts get-caller-identity --query Account --output text)"
+          caller_arn="$(aws sts get-caller-identity --query Arn --output text)"
+
+          [[ "$caller_account" == "$MANAGEMENT_ACCOUNT_ID" ]]
+          case "$caller_arn" in
+            arn:aws:sts::191125774822:assumed-role/secure-cicd-pipeline-nonprod-github-ecs-deployer/*) ;;
+            *) exit 1 ;;
+          esac
+
+      - name: Chain into the NonProd deployment role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ env.NONPROD_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ env.NONPROD_ACCOUNT_ID }}
+          role-chaining: true
+          role-skip-session-tagging: true
+          role-session-name: s9-nonprod-${{ github.run_id }}
+
+      - name: Validate NonProd runtime read access
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          caller_account="$(aws sts get-caller-identity --query Account --output text)"
+          caller_arn="$(aws sts get-caller-identity --query Arn --output text)"
+          [[ "$caller_account" == "$NONPROD_ACCOUNT_ID" ]]
+          case "$caller_arn" in
+            arn:aws:sts::119033255630:assumed-role/secure-cicd-pipeline-nonprod-ecs-deployer/*) ;;
+            *) exit 1 ;;
+          esac
+
+          service_json="$(aws ecs describe-services \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --output json)"
+          [[ "$(jq '.services | length' <<<"$service_json")" == "1" ]]
+          [[ "$(jq '.failures | length' <<<"$service_json")" == "0" ]]
+          [[ "$(jq -r '.services[0].status' <<<"$service_json")" == "ACTIVE" ]]
+          task_definition_arn="$(jq -r '.services[0].taskDefinition' <<<"$service_json")"
+          [[ "$task_definition_arn" == arn:aws:ecs:ap-southeast-1:119033255630:task-definition/secure-cicd-pipeline-nonprod:* ]]
+
+          task_definition_json="$(aws ecs describe-task-definition \
+            --region "$AWS_REGION" \
+            --task-definition "$task_definition_arn" \
+            --output json)"
+          [[ "$(jq -r '.taskDefinition.family' <<<"$task_definition_json")" == "$ECS_TASK_FAMILY" ]]
+          [[ "$(jq --arg name "$ECS_CONTAINER" \
+            '[.taskDefinition.containerDefinitions[] | select(.name == $name)] | length' \
+            <<<"$task_definition_json")" == "1" ]]
+          task_image="$(jq -r --arg name "$ECS_CONTAINER" \
+            '.taskDefinition.containerDefinitions[] | select(.name == $name) | .image' \
+            <<<"$task_definition_json")"
+          image_prefix="$ECR_REGISTRY/$ECR_REPOSITORY@"
+          [[ "$task_image" == "$image_prefix"sha256:* ]]
+          image_digest="${task_image#"$image_prefix"}"
+          [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+          described_digest="$(aws ecr describe-images \
+            --region "$AWS_REGION" \
+            --registry-id "$NONPROD_ACCOUNT_ID" \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageDigest="$image_digest" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)"
+          [[ "$described_digest" == "$image_digest" ]]
+
+          scan_error="$(mktemp)"
+          trap 'rm -f "$scan_error"' EXIT
+          if aws ecr describe-image-scan-findings \
+            --region "$AWS_REGION" \
+            --registry-id "$NONPROD_ACCOUNT_ID" \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-id imageDigest="$image_digest" \
+            --output json >/dev/null 2>"$scan_error"; then
+            scan_result="PASS"
+          elif grep -Eq 'ScanNotFoundException|UnsupportedImageTypeException' "$scan_error"; then
+            scan_result="NOT EXERCISED"
+          else
+            echo "Image scan metadata request failed." >&2
+            exit 1
+          fi
+
+          task_arns_json="$(aws ecs list-tasks \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER" \
+            --service-name "$ECS_SERVICE" \
+            --desired-status RUNNING \
+            --query taskArns \
+            --output json)"
+          [[ "$(jq 'length' <<<"$task_arns_json")" -ge 1 ]]
+          mapfile -t task_arns < <(jq -r '.[]' <<<"$task_arns_json")
+
+          tasks_json="$(aws ecs describe-tasks \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "${task_arns[@]}" \
+            --output json)"
+          [[ "$(jq '.failures | length' <<<"$tasks_json")" == "0" ]]
+          jq -e '
+            (.tasks | length) > 0 and
+            all(.tasks[]; .launchType == "FARGATE" and .lastStatus == "RUNNING")
+          ' \
+            <<<"$tasks_json" >/dev/null
+          jq -e --arg task_definition "$task_definition_arn" \
+            'all(.tasks[]; .taskDefinitionArn == $task_definition)' \
+            <<<"$tasks_json" >/dev/null
+          jq -e --arg name "$ECS_CONTAINER" --arg digest "$image_digest" '
+            ([.tasks[].containers[] | select(.name == $name)] | length) == (.tasks | length) and
+            all(.tasks[].containers[] | select(.name == $name);
+              (.imageDigest == null or .imageDigest == $digest))
+          ' <<<"$tasks_json" >/dev/null
+
+          {
+            echo "## Deployment role-chain validation"
+            echo
+            echo "- Trusted GitHub context: PASS"
+            echo "- Management deployment broker: PASS"
+            echo "- NonProd deployment role: PASS"
+            echo "- ECR serving image lookup: PASS"
+            echo "- ECR image scan lookup: $scan_result"
+            echo "- ECS service and task definition reads: PASS"
+            echo "- ECS running task reads: PASS"
+            echo "- Runtime digest consistency: PASS"
+          } >>"$GITHUB_STEP_SUMMARY"
