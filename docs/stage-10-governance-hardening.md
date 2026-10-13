@@ -1,10 +1,10 @@
 # Stage 10 Governance and Operational Hardening
 
-> Status: **STAGE 10.0 DESIGN ONLY — NO GOVERNANCE OR LIVE-SERVICE
-> MUTATION**. This document records the 2026-10-13 baseline, the remaining
-> governance gaps after Stage 9, and the proposed Stage 10 roadmap. It does not
-> claim that the proposed ruleset, Environment changes, evidence retention, or
-> human notification path has been applied.
+> Status: **STAGE 10.1 COMPLETE; STAGE 10.2 REVALIDATED — ENVIRONMENT
+> HARDENING AWAITS A SEPARATE OWNER GATE**. The `main-governance` ruleset is
+> active. The `nonprod` Environment was re-read on 2026-10-13; no Environment,
+> AWS, IAM, Terraform, ECS, ECR, or live-service mutation occurred in Stage
+> 10.2.
 
 ## Purpose
 
@@ -27,34 +27,31 @@ technical deployment path:
 
 ## Trusted baseline
 
-The baseline was established from the local repository, the remote branch and
-commit APIs, pull-request history, check runs, and workflow-run evidence.
-`git fetch --prune origin` was attempted, but the execution environment could
-not connect to `github.com:443`. The authenticated GitHub connection was
-therefore used to verify that the local `origin/main` reference remained
-current before the Stage 10 branch was created.
+The Stage 10.2 baseline was established from a successful remote fetch, the
+local repository, authenticated GitHub administration reads, check runs, and
+workflow-run evidence. Local `main` was advanced by fast-forward only before
+the continuing Stage 10 branch was created.
 
 | Item | Evidence | Result |
 | --- | --- | --- |
 | Repository | `Nex-opensourcehorray/secure-cicd-pipeline`, repository ID `1409968457`, owner ID `82328818` | VERIFIED |
 | Authenticated GitHub identity | `Nex-opensourcehorray` | VERIFIED |
 | Remote default branch | `main` | VERIFIED |
-| `origin/main` / remote `main` | `9ee8268693b5bd63d9253fd683dfa2ff6fbf3725` | MATCH |
-| Stage 9 closure | PR #20, merge commit `9ee8268693b5bd63d9253fd683dfa2ff6fbf3725` | MERGED |
-| Post-merge CI | workflow `CI`, run #55, run ID `38354519286` | PASS |
-| Post-merge Security | workflow `Security`, run #55, run ID `38354519235` | PASS |
+| `origin/main` / remote `main` | `c1fdbc7adf11e5e77aee83db62d05d739f84af8b` | MATCH |
+| Stage 10 design | PR #21, merge commit `c1fdbc7adf11e5e77aee83db62d05d739f84af8b` | MERGED |
+| Post-merge CI | workflow `CI`, run #57 | PASS |
+| Post-merge Security | workflow `Security`, run #57 | PASS |
 | Starting worktree | clean; `git diff --check` returned no findings | PASS |
-| Stage 10 branch | `stage-10-governance-hardening`, created at the verified remote `main` commit | ESTABLISHED |
+| Continuing Stage 10 branch | `stage-10-operational-hardening`, created at the verified remote `main` commit | ESTABLISHED |
 
-The local `main` branch was behind the verified remote commit at discovery.
-It was not reset or rewritten. The Stage 10 branch was created directly from
-the verified `origin/main` reference.
+No reset or history rewrite was used. Ruleset `24978564` was also re-read and
+remained active, while branch metadata reported `main` as protected.
 
-## Current gaps
+## Governance status and remaining gaps
 
 | Gap | Current evidence | Risk |
 | --- | --- | --- |
-| `main` governance | Live branch metadata reports `protected: false`; the live repository ruleset collection is empty. | An authorized or compromised maintainer can bypass the normal PR and check convention with a direct push. |
+| `main` governance | Ruleset `24978564` is active and live branch metadata reports `protected: true`. | CONTROL ACTIVE — PR flow, seven checks, freshness, review-thread resolution, deletion protection, and non-fast-forward protection are enforced. |
 | Independent deployment approval | Stage 9 established one required reviewer, but the project has one maintainer and permits self-review and administrator bypass. | The Environment is a visible approval boundary, not four-eyes separation of duties. |
 | Python artifact integrity | Direct packages and Python-installed tools use exact versions, but resolved artifacts and most transitive dependencies are not hash locked. | A registry-side artifact or transitive-resolution change can alter an installation without a source change. |
 | Evidence retention | Deployment summaries and logs exist, but no explicit repository retention setting or durable sanitized deployment manifest is recorded. | Evidence can expire or become hard to correlate during review or investigation. |
@@ -87,14 +84,14 @@ topic but not a human owner.
 
 | Control | Current state | Evidence boundary |
 | --- | --- | --- |
-| Classic branch protection | NONE | Live branch metadata reports unprotected. The detailed protection endpoint returned `403` to the installed integration, consistent with its lack of repository-administration read scope; the unprotected branch flag is public branch metadata. |
-| Repository rulesets | NONE | Live repository ruleset list returned an empty collection. |
-| Pull request required | NO | No active protection or ruleset enforces it. |
-| Required status checks | NONE | Branch metadata reports enforcement `off` with no contexts/checks. |
-| Direct push to `main` | TECHNICALLY POSSIBLE | Repository owner has push/admin permission and no live rule blocks updates. |
-| Force-push restriction | NONE ENFORCED | No classic protection or ruleset is active. |
-| Deletion restriction | NONE ENFORCED | No classic protection or ruleset is active. |
-| Administrator enforcement/bypass | NOT APPLICABLE YET | There is no current rule to enforce or bypass. |
+| Classic branch protection | NONE | The classic-protection endpoint remains separate from the active repository ruleset; branch metadata now reports `protected: true` because the ruleset governs `main`. |
+| Repository rulesets | `main-governance` / ID `24978564` / active | Exact-ID read-back and four effective rules on `main`. |
+| Pull request required | YES | Active pull-request rule; normal required approvals remain `0`. |
+| Required status checks | SEVEN | All approved contexts are pinned to GitHub Actions integration ID `15368`; strict freshness is enabled. |
+| Direct push to `main` | BLOCKED | The owner bypass applies only while completing a pull request, not to direct pushes. |
+| Force-push restriction | ENFORCED | Active `non_fast_forward` rule. |
+| Deletion restriction | ENFORCED | Active `deletion` rule. |
+| Administrator enforcement/bypass | OWNER PR-ONLY | Exact user ID `82328818`; no direct-push or always-bypass mode. |
 
 ### Pull-request convention
 
@@ -133,14 +130,14 @@ also prevents an unrelated integration from satisfying a same-named check.
 Renaming, removing, path-filtering, or conditionally skipping one of these jobs
 must be coordinated with the ruleset before merge.
 
-## Proposed `main` ruleset
+## Applied `main` ruleset
 
-A repository ruleset is preferred over a new classic branch-protection rule
-because it exposes the intended policy as one named rule collection, supports
-an explicit narrow bypass actor, and has rule-insight/audit semantics. The
-ruleset must be applied only after a separate owner approval gate.
+A repository ruleset was selected over a new classic branch-protection rule
+because it exposes the policy as one named rule collection, supports an
+explicit narrow bypass actor, and has rule-insight/audit semantics. The exact
+payload below was owner-approved, applied, and verified in Stage 10.1.
 
-| Option | Current | Proposed | Security benefit | Solo-maintainer effect |
+| Option | Stage 10.0 baseline | Applied | Security benefit | Solo-maintainer effect |
 | --- | --- | --- | --- | --- |
 | Target | None | Default branch (`~DEFAULT_BRANCH`, currently `main`) | Follows the repository's governed default branch. | No effect on feature branches. |
 | Enforcement | None | `active` | Makes governance preventive rather than advisory. | Merges must satisfy or explicitly bypass the rule. |
@@ -158,10 +155,9 @@ ruleset must be applied only after a separate owner approval gate.
 | Allowed merge methods | Unknown repository flags | Preserve `merge`, `squash`, and `rebase`; repository settings still decide availability | Avoids imposing an unrelated history policy. | Keeps owner flexibility. |
 | Bypass | No rule | Exact owner user ID `82328818`, PR-only bypass | Retains an audited recovery route without permitting bypass by direct push. | Owner can recover from check/ruleset failure only through a PR. |
 
-### Exact draft payload
+### Applied request payload
 
-This is the proposed repository ruleset request body. It is a review artifact,
-not an instruction to execute during Stage 10.0.
+This is the approved repository ruleset request body submitted in Stage 10.1.
 
 ```json
 {
@@ -215,52 +211,117 @@ not an instruction to execute during Stage 10.0.
 }
 ```
 
-Before a future apply, Stage 10.1 must re-read `main`, the ruleset collection,
-the latest successful PR check runs, and the current API schema. It must also
-confirm that `~DEFAULT_BRANCH` resolves to `main`, the owner can use PR-only
-bypass, and a test PR produces all seven contexts.
+Stage 10.1 completed with ruleset ID `24978564`, name `main-governance`, target
+`branch`, and enforcement `active`. Exact-ID and effective-rule reads confirm
+that `~DEFAULT_BRANCH` governs `main`, all seven checks are required, and the
+owner bypass is PR-only. GitHub normalized two optional response fields:
+
+```text
+required_reviewers: []
+require_extra_approval_for_unattributed_changes: true
+```
+
+The first is empty. The second is a server default with no current practical
+approval effect while `required_approving_review_count` is `0`. Neither field
+changes the approved Stage 10.1 policy. A future normal Stage 10 pull request
+will provide functional evidence without destructive ruleset testing.
 
 ## Environment governance
 
-Stage 9 last verified the `nonprod` Environment as follows:
+Stage 10.2 re-read the live `nonprod` Environment with the authenticated owner
+session. The Environment ID is `24058843649`; it was created and last updated
+at `2026-10-12T07:38:56Z`. No drift from the approved Stage 9 configuration was
+found.
 
-| Setting | Last verified state | Classification |
+| Setting | Live state | Classification |
 | --- | --- | --- |
-| Required reviewer | `Nex-opensourcehorray` | Existing human-visible gate |
-| Prevent self-review | `false` | Necessary for the current single-maintainer operating model |
-| Administrator bypass | enabled | Recovery path and separation-of-duties limitation |
-| Deployment branches | `main` only | Strong source boundary |
-| Wait timer | `0` | Appropriate; delay alone does not add independent review |
+| Required reviewer | `Nex-opensourcehorray` / user ID `82328818` | One human-visible gate |
+| Prevent self-review | `false` | Required for the current solo-maintainer workflow |
+| Administrator bypass | enabled (`can_admins_bypass: true`) | Avoidable alternate release path; not independent review |
+| Wait timer | `0` (no wait-timer rule returned) | No security benefit from delay alone |
+| Deployment branch mode | custom policies enabled; protected-branch mode disabled | Exact allowlist mode |
+| Deployment branch policies | one: `main` / type `branch` | Tags, feature branches, and wildcard branches are not authorized |
+| Environment variables | six; exact names and values match Stage 9 | No drift |
+| Environment secrets | zero | No unexpected secret metadata |
 
-The Stage 10 GitHub integration can read workflows, runs, branches, checks,
-and rulesets but not the Environment administration endpoint. The local `gh`
-credential was also invalid. Consequently, Stage 10.0 could verify the prior
-successful Environment-gated run `38272473650` but could not independently
-re-read the live protection settings. The table above is therefore the Stage 9
-live-verified state, not a new Stage 10 live-settings claim. Stage 10.2 must
-re-read it with an appropriately scoped owner session before proposing any
-mutation.
-
-### Feasible and stronger states
+The six variables remain:
 
 ```text
-CURRENTLY OPERATIONALLY POSSIBLE
-  retain one reviewer
-  retain prevent_self_review=false
-  retain main-only deployment policy
-  document that approval is not independent
-  retain a consciously accepted administrator recovery path
-
-TECHNICALLY DESIRABLE WHEN A REAL SECOND MAINTAINER EXISTS
-  add the independent reviewer
-  set prevent_self_review=true
-  restrict administrator bypass after testing the recovery process
-  retain main-only deployment policy
+AWS_MANAGEMENT_DEPLOY_ROLE_ARN
+AWS_NONPROD_ECS_DEPLOY_ROLE_ARN
+ECS_CLUSTER_NAME
+ECS_SERVICE_NAME
+ECS_CONTAINER_NAME
+ECS_EXECUTION_ROLE_ARN
 ```
 
-No second identity will be fabricated. Disabling self-review now would make
-the portfolio deployment path unusable without delivering real separation of
-duties.
+### Approval classification
+
+```text
+HUMAN-VISIBLE APPROVAL: YES
+SELF-REVIEW POSSIBLE:    YES
+INDEPENDENT APPROVAL:   NO
+FOUR-EYES CONTROL:      NO
+```
+
+The repository collaborator read returned only `Nex-opensourcehorray`, with
+administrator permission. No real second eligible reviewer is currently
+available, so `prevent_self_review=true` is not feasible without risking an
+approval deadlock. This is an accepted organizational limitation, not a
+technical defect. No alternate identity will be fabricated.
+
+### Administrator-bypass capability
+
+Self-review and administrator bypass are distinct controls. Retaining
+`prevent_self_review=false` lets the sole maintainer complete the normal
+review path. Disabling administrator bypass would remove the special path that
+can release a waiting deployment without satisfying that normal path, while
+leaving the repository usable.
+
+GitHub's current documented [REST Environment update][rest-environment-update]
+accepts only `wait_timer`, `prevent_self_review`, `reviewers`, and
+`deployment_branch_policy`; it does not document an administrator-bypass
+request field. The documented GraphQL [`updateEnvironment`][graphql-update]
+input likewise exposes only the Environment ID, wait timer, reviewers, and
+self-review control. `gh` has no separate supported mutation surface beyond
+those APIs. No undocumented payload will be attempted.
+
+GitHub's documented [Environment settings workflow][environment-settings]
+does support deselecting **Allow administrators to bypass configured
+protection rules** and saving the protection rules. The preferred near-term
+hardening is therefore technically safe but owner-performed through the web
+UI, followed by an authenticated read-back.
+
+[rest-environment-update]: https://docs.github.com/en/rest/deployments/environments?apiVersion=2026-03-10#create-or-update-an-environment
+[graphql-update]: https://docs.github.com/en/graphql/reference/mutations#updateenvironment
+[environment-settings]: https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments
+
+### Governance decision matrix
+
+| Model | Configuration | Safe now? | Security benefit | Operational effect | Recommendation |
+| --- | --- | ---: | --- | --- | --- |
+| A — current | owner reviewer; self-review allowed; admin bypass enabled | YES | Explicit human-visible gate | Owner can approve normally or bypass | Accept only until Model B is approved |
+| B — disable admin bypass only | owner reviewer; self-review allowed; admin bypass disabled | YES | Removes the special bypass route | Normal owner approval still works | **PREFERRED NEAR-TERM** |
+| C — prevent self-review with one reviewer | owner reviewer; self-review disabled | NO | Would nominally separate initiation and approval | No eligible second reviewer; deadlock risk | REJECT for current model |
+| D — independent reviewer | real second reviewer; self-review disabled; bypass disabled/restricted | NOT YET | Genuine four-eyes approval | Requires a trusted second maintainer | TARGET FUTURE STATE |
+
+The pending exact governance diff is:
+
+```text
+UPDATE 1 Environment governance field
+  administrator bypass: enabled -> disabled
+
+UNCHANGED
+  reviewer: Nex-opensourcehorray / 82328818
+  prevent_self_review: false
+  wait timer: 0
+  deployment branch: main / branch
+  variables: 6
+  secrets: 0
+```
+
+No Environment mutation occurred. The manual UI change requires a separate
+owner action gate and must be verified by a subsequent live read.
 
 ## Dependency and artifact integrity
 
@@ -426,60 +487,21 @@ This design grants no permission to perform any of the following:
 - publish an image or deploy/roll back ECS;
 - merge to `main`, force push, rewrite history, or perform destructive work.
 
-## Prepared Stage 10.1 action gate
+## Stage 10.1 applied action record
+
+The separately approved Stage 10.1 operation created exactly one repository
+ruleset:
 
 ```text
-ACTION GATE — STAGE 10.1 MAIN GOVERNANCE APPLY
-
-Operation:
-Create one active repository branch ruleset named `main-governance` using the
-exact reviewed payload in this document, after Stage 10.1 revalidation.
-
-Resources affected:
-GitHub repository Nex-opensourcehorray/secure-cicd-pipeline; default branch main
-
-Environment:
-GitHub repository governance (not the nonprod deployment Environment)
-
-AWS account:
-N/A
-
-Region:
-N/A
-
-Creates:
-1 repository branch ruleset
-
-Updates:
-Effective governance of main: PR required, seven GitHub Actions checks required,
-review threads resolved, branch up to date, force push blocked, deletion blocked
-
-Destroys:
-0
-
-IAM changes:
-NONE
-
-Network changes:
-NONE
-
-Expected external effects:
-Ordinary direct pushes, force pushes, and deletion of main are blocked. PRs must
-produce all seven current job checks. The exact owner has PR-only emergency
-bypass; no direct-push bypass is proposed.
-
-Destructive changes:
-NO
-
-Rollback:
-Capture the created ruleset ID and response. After separate owner approval,
-disable or delete that exact ruleset; do not weaken unrelated controls.
-
-Evidence reviewed:
-Remote main SHA and PR #20 merge; CI/Security run #55; seven live check runs and
-GitHub Actions integration ID; empty ruleset collection; unprotected main branch;
-20-PR convention; workflow PR triggers; Stage 9 closure and threat evidence.
+ID:          24978564
+Name:        main-governance
+Target:      branch
+Enforcement: active
+main:        protected / governed
 ```
 
-The gate is prepared only. No approval is inferred and no settings mutation
-occurred in Stage 10.0.
+Read-back verified the approved PR rule, seven required checks, strict branch
+freshness, review-thread resolution, deletion protection, non-fast-forward
+protection, and owner PR-only bypass. No direct-push bypass exists. Any future
+update, disablement, or deletion must target ruleset ID `24978564` and requires
+separate owner approval.

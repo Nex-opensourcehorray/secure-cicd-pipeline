@@ -59,6 +59,9 @@ See [architecture](docs/architecture.md) and the
   no task role, no privileged mode, and all Linux capabilities dropped.
 - Terraform, workflow, secret, dependency, SAST, and container checks run in
   the GitHub security pipeline.
+- The active `main-governance` ruleset requires pull requests, seven successful
+  CI/Security checks, current-branch freshness, and resolved review threads;
+  it also blocks deletion, force pushes, and ordinary direct pushes to `main`.
 
 ## CI Pipeline
 
@@ -138,7 +141,6 @@ status and evidence boundaries.
 
 ## Known Limitations
 
-- `main` currently has no branch protection or repository ruleset.
 - The `nonprod` approval boundary is single-maintainer: self-review and
   administrator bypass are available, so it is not four-eyes approval.
 - Python packages and Python-installed security tools are version-pinned but
