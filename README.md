@@ -1,0 +1,170 @@
+# Secure CI/CD Pipeline on AWS
+
+A portfolio implementation of a security-focused CI/CD platform for a Python
+API running on private Amazon ECS Fargate infrastructure. The project combines
+GitHub Actions, Docker, Terraform, GitHub OIDC federation, cross-account AWS
+role chaining, Amazon ECR, deployment approval, immutable artifact promotion,
+and fail-closed validation.
+
+This is a validated NonProd portfolio environment, not a production service.
+The continuous-deployment capability is implemented, but the first mutating
+ECS promotion and a live failed-deployment rollback exercise are intentionally
+deferred.
+
+## Project Overview
+
+The repository demonstrates a complete path from source validation to an
+approved, digest-pinned ECS deployment:
+
+```text
+trusted main source
+  -> CI and security validation
+  -> manual image publication
+  -> immutable ECR digest
+  -> manual deployment request
+  -> GitHub Environment approval
+  -> GitHub OIDC and cross-account role chaining
+  -> time-of-deploy vulnerability check
+  -> allowlisted ECS task-definition revision
+  -> exact service pointer update
+  -> runtime and rollback-outcome verification
+```
+
+## Architecture
+
+- A Management AWS account owns the GitHub OIDC provider and separate broker
+  roles for publication and deployment.
+- A NonProd AWS account owns the private ECR repository, dedicated ECR
+  publisher, dedicated ECS deployer, and private Fargate runtime.
+- ECS tasks run in private subnets without public IPs or NAT-based internet
+  egress. Private endpoints provide ECR, CloudWatch Logs, and S3 connectivity.
+- An internet-facing Application Load Balancer exists in a fail-closed state:
+  its security group has no public inbound rule.
+
+See [architecture](docs/architecture.md) and the
+[Stage 9 CD design](docs/stage-9-cd-design.md).
+
+## Security Controls
+
+- GitHub Actions permissions default to `contents: read`.
+- Only AWS-authenticating jobs receive `id-token: write`.
+- All reusable actions are pinned to full immutable commit SHAs.
+- No static AWS access keys are stored in GitHub.
+- OIDC trust binds audience, immutable repository subject, numeric owner and
+  repository IDs, exact `main` ref, and the `nonprod` Environment.
+- Publication and deployment use separate Management and NonProd identities.
+- HIGH and CRITICAL vulnerability findings block publication and deployment.
+- ECS task definitions use immutable ECR digest references.
+- The application container runs non-root with a read-only root filesystem,
+  no task role, no privileged mode, and all Linux capabilities dropped.
+- Terraform, workflow, secret, dependency, SAST, and container checks run in
+  the GitHub security pipeline.
+
+## CI Pipeline
+
+Pull requests and pushes to `main` run Python tests and container validation.
+The Security workflow runs Bandit, pip-audit, Gitleaks, Checkov, and Trivy.
+Container validation checks readiness, API behavior, Docker health, and the
+non-root runtime identity.
+
+## Image Publication
+
+Image publication is a manual trusted-main workflow. It builds the checked-out
+commit, blocks HIGH/CRITICAL findings, authenticates through the dedicated
+publication role chain, pushes a commit-SHA tag to the immutable private ECR
+repository, and records the returned digest. Publication authority has no ECS
+deployment permission.
+
+## Continuous Deployment
+
+The deployment workflow accepts only a lowercase 40-character source SHA. It
+proves trusted-main ancestry and successful CI, Security, and publication
+evidence before entering the protected `nonprod` Environment. It resolves the
+commit tag to one ECR digest internally and never accepts an arbitrary digest
+as deployment authority.
+
+After approval, the workflow rechecks the candidate and rollback digest for
+active HIGH/CRITICAL findings, clones the current task definition through an
+allowlist, changes only the image URI, registers one revision, and updates only
+the exact ECS service task-definition pointer.
+
+## AWS IAM / OIDC Model
+
+```text
+GitHub nonprod Environment
+  -> Management deployment broker
+  -> NonProd ECS deployer
+  -> exact task family, service, cluster, and execution role
+```
+
+The Management broker can only assume the exact NonProd deployment role. The
+NonProd deployer has required metadata reads plus controlled
+`RegisterTaskDefinition`, exact-service `UpdateService`, and `PassRole` for the
+exact ECS execution role. It has no image publication, IAM administration,
+network mutation, task execution, task stopping, or Terraform authority.
+
+## Runtime Security
+
+The deployed baseline uses private Fargate networking, service endpoints,
+least-privilege execution IAM, digest-pinned images, CloudWatch application
+logs, VPC Flow Logs, alarms, EventBridge security signals, and an ECS
+deployment circuit breaker. Detailed live Stage 8 evidence is recorded in
+[runtime evidence](docs/stage-8-runtime-evidence.md).
+
+## Rollback Model
+
+The deployment workflow observes ECS automatic circuit-breaker rollback; it
+does not issue a manual rollback. The previous revision and digest are captured
+before mutation, both candidate and rollback images are scanned, and the
+actual serving revision determines the result. Confirmed automatic rollback
+still fails the workflow, while ambiguous state fails closed.
+
+Rollback logic has 57 deterministic tests. A live failed deployment and live
+automatic rollback have not been executed.
+
+## Validation & Testing
+
+The merged Stage 9 baseline passed:
+
+- application and container tests;
+- SAST, dependency, secret, IaC, and container scans;
+- workflow linting and immutable-action review;
+- all deployment-helper tests;
+- Terraform formatting and validation across four roots; and
+- read-only OIDC, role-chain, Environment, and runtime preflight checks.
+
+See [Stage 9 closure evidence](docs/stage-9-closure-evidence.md) for the final
+status and evidence boundaries.
+
+## Known Limitations
+
+- `main` currently has no branch protection or repository ruleset.
+- The `nonprod` approval boundary is single-maintainer: self-review and
+  administrator bypass are available, so it is not four-eyes approval.
+- Python packages and Python-installed security tools are version-pinned but
+  not cryptographically artifact-hash pinned.
+- The first live ECS promotion is deferred because no distinct scan-clean,
+  trusted published candidate was available at closure.
+- The live rollback exercise is deferred and requires a separately approved,
+  safe failure-test design.
+- Vulnerability state can change after a rollback digest is checked and before
+  an automatic rollback occurs.
+
+## Repository Structure
+
+```text
+.github/workflows/     CI, security, publication, trust, and deployment flows
+.github/scripts/       Fail-closed ECS deployment validation helper and tests
+application/           FastAPI application, tests, and hardened Docker image
+terraform/environments Management and NonProd Terraform roots
+terraform/modules/     Reusable ECR, IAM, network, ECS, ALB, and monitoring code
+docs/                  Architecture, threat model, controls, and stage evidence
+```
+
+## Skills Demonstrated
+
+GitHub Actions, AWS IAM and OIDC, cross-account role chaining, Terraform,
+Docker, Amazon ECR, ECS Fargate, private VPC networking, least privilege,
+software-supply-chain validation, immutable artifacts, vulnerability gating,
+deployment approvals, observability, rollback analysis, and evidence-driven
+cloud-security engineering.

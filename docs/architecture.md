@@ -14,11 +14,12 @@ The design spans two conceptual account boundaries:
   trusted GitHub Actions; and
 - a NonProd account hosts the private ECR repository and Stage 8 runtime.
 
-The account boundary prevents the GitHub identity from receiving direct
-runtime permissions. The publication path assumes a dedicated NonProd ECR
-publisher role. The runtime uses a separate, least-privilege ECS task execution
-role. See [CI/CD security controls](cicd-security-controls.md) for the complete
-publication trust and permission model.
+The account boundary prevents a GitHub-federated broker from receiving direct
+runtime permissions. Separate role chains enter a dedicated NonProd ECR
+publisher and a dedicated NonProd ECS deployer. The runtime uses a distinct,
+least-privilege ECS task execution role. See
+[CI/CD security controls](cicd-security-controls.md) for the complete trust and
+permission model.
 
 ## System view
 
@@ -26,9 +27,12 @@ publication trust and permission model.
 flowchart LR
     GH[GitHub Actions<br/>trusted main workflow]
     OIDC[GitHub OIDC]
-    BROKER[Management<br/>broker role]
+    BROKER[Management<br/>publication broker]
     PUBLISHER[NonProd<br/>ECR publisher role]
     ECR[(Private ECR<br/>immutable digest)]
+    DEPLOY[Manual ECS deployment<br/>nonprod approval]
+    DEPBROKER[Management<br/>deployment broker]
+    DEPROLE[NonProd<br/>ECS deployer]
 
     subgraph VPC[NonProd VPC 10.42.0.0/16]
         subgraph PUB[Two public ALB subnets]
@@ -49,6 +53,8 @@ flowchart LR
     INTERNET((Internet))
 
     GH --> OIDC --> BROKER --> PUBLISHER --> ECR
+    GH --> DEPLOY --> OIDC
+    OIDC --> DEPBROKER --> DEPROLE --> ECS
     ECR -. digest-pinned pull .-> EP --> ECS
     S3 --> ECS
     INTERNET -. blocked by ALB SG .-> ALB
@@ -131,10 +137,11 @@ consumes their signals where applicable but does not own or configure them.
 Control status and validation evidence are recorded in
 [runtime security controls](runtime-security-controls.md) and
 [Stage 8 runtime evidence](stage-8-runtime-evidence.md). The
-[threat model](threat-model.md) remains a Stage 9 input and will be extended
-for continuous-deployment threats rather than being treated as complete here.
+[threat model](threat-model.md) covers the implemented continuous-deployment
+boundary and its residual risks.
 
-The proposed continuous-deployment trust boundary, dedicated identities, and
-Terraform/CD ownership seam are documented separately in the
-[Stage 9 continuous deployment design](stage-9-cd-design.md). That design does
-not alter the implemented Stage 8 runtime or authorize deployment.
+The continuous-deployment trust boundary, dedicated identities, and
+Terraform/CD ownership seam are documented in the
+[Stage 9 continuous deployment design](stage-9-cd-design.md). The capability
+is implemented, while its first mutating ECS promotion remains separately
+gated and deferred.
