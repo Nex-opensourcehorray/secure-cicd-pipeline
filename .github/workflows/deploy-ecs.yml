@@ -109,10 +109,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   validate-deployment-candidate:
-    name: Validate deployment candidate and current runtime
+    name: Deploy approved digest and validate runtime
     needs: validate-source
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     environment:
       name: nonprod
     permissions:
@@ -131,6 +131,9 @@ jobs:
       ECS_SERVICE_NAME: ${{ vars.ECS_SERVICE_NAME }}
       ECS_CONTAINER_NAME: ${{ vars.ECS_CONTAINER_NAME }}
       ECS_EXECUTION_ROLE_ARN: ${{ vars.ECS_EXECUTION_ROLE_ARN }}
+      ECS_TASK_FAMILY: secure-cicd-pipeline-nonprod
+      ECS_TARGET_GROUP_ARN: arn:aws:elasticloadbalancing:ap-southeast-1:119033255630:targetgroup/secure-cicd-pipeline-nonprod-tg/919de08359876a7b
+      ALB_SECURITY_GROUP_ID: sg-0a082963a48d1cc39
 
     steps:
       - name: Check out trusted workflow helper
@@ -155,6 +158,9 @@ jobs:
           [[ "$ECS_SERVICE_NAME" == "secure-cicd-pipeline-nonprod" ]]
           [[ "$ECS_CONTAINER_NAME" == "secure-cicd-demo" ]]
           [[ "$ECS_EXECUTION_ROLE_ARN" == "arn:aws:iam::119033255630:role/secure-cicd-pipeline-nonprod-ecs-execution" ]]
+          [[ "$ECS_TASK_FAMILY" == "secure-cicd-pipeline-nonprod" ]]
+          [[ "$ECS_TARGET_GROUP_ARN" == "arn:aws:elasticloadbalancing:ap-southeast-1:119033255630:targetgroup/secure-cicd-pipeline-nonprod-tg/919de08359876a7b" ]]
+          [[ "$ALB_SECURITY_GROUP_ID" == "sg-0a082963a48d1cc39" ]]
 
       - name: Authenticate to the Management deployment broker
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
@@ -187,7 +193,8 @@ jobs:
           role-skip-session-tagging: true
           role-session-name: ecs-deploy-nonprod-${{ github.run_id }}
 
-      - name: Validate immutable candidate and runtime invariants
+      - name: Validate candidate and prepare allowlisted task revision
+        id: prepare
         shell: bash
         run: |
           set -euo pipefail
@@ -200,9 +207,8 @@ jobs:
             *) exit 1 ;;
           esac
 
-          work_dir="$(mktemp -d "$RUNNER_TEMP/ecs-preflight.XXXXXX")"
-          chmod 700 "$work_dir"
-          trap 'rm -rf "$work_dir"' EXIT
+          work_dir="$RUNNER_TEMP/ecs-deployment-$GITHUB_RUN_ID"
+          install -d -m 700 "$work_dir"
 
           run_aws_json() {
             local output="$1"
@@ -235,7 +241,8 @@ jobs:
           candidate_scan_result="$work_dir/candidate-scan-result.json"
           service_json="$work_dir/service.json"
           task_definition_json="$work_dir/task-definition.json"
-          runtime_result="$work_dir/runtime-result.json"
+          registration_payload="$work_dir/register-task-definition.json"
+          prepare_result="$work_dir/prepare-result.json"
           rollback_scan_json="$work_dir/rollback-scan.json"
           rollback_scan_result="$work_dir/rollback-scan-result.json"
 
@@ -279,19 +286,23 @@ jobs:
             --region "$AWS_REGION" \
             --task-definition "$current_task_definition" \
             --output json
-          python3 .github/scripts/validate_ecs_deployment_preflight.py runtime \
+          python3 .github/scripts/validate_ecs_deployment_preflight.py prepare \
             --service "$service_json" \
             --task-definition "$task_definition_json" \
+            --candidate-image "$candidate_uri" \
+            --output-payload "$registration_payload" \
             --expected-cluster-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:cluster/${ECS_CLUSTER_NAME}" \
             --expected-service-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:service/${ECS_CLUSTER_NAME}/${ECS_SERVICE_NAME}" \
             --expected-service-name "$ECS_SERVICE_NAME" \
-            --expected-task-family "secure-cicd-pipeline-nonprod" \
+            --expected-task-family "$ECS_TASK_FAMILY" \
             --expected-container-name "$ECS_CONTAINER_NAME" \
             --expected-execution-role-arn "$ECS_EXECUTION_ROLE_ARN" \
             --expected-image-prefix "${AWS_NONPROD_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@" \
-            --expected-region "$AWS_REGION" > "$runtime_result"
+            --expected-region "$AWS_REGION" \
+            --expected-target-group-arn "$ECS_TARGET_GROUP_ARN" \
+            --expected-alb-security-group-id "$ALB_SECURITY_GROUP_ID" > "$prepare_result"
 
-          rollback_digest="$(jq -r '.current_digest' "$runtime_result")"
+          rollback_digest="$(jq -r '.current_digest' "$prepare_result")"
           [[ "$rollback_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           run_aws_json "$rollback_scan_json" aws ecr describe-image-scan-findings \
             --region "$AWS_REGION" \
@@ -307,6 +318,16 @@ jobs:
           candidate_critical="$(jq -r '.critical' "$candidate_scan_result")"
           rollback_high="$(jq -r '.high' "$rollback_scan_result")"
           rollback_critical="$(jq -r '.critical' "$rollback_scan_result")"
+          current_task_definition="$(jq -r '.task_definition_arn' "$prepare_result")"
+          current_revision="$(jq -r '.task_definition_revision' "$prepare_result")"
+
+          {
+            echo "candidate_digest=$candidate_digest"
+            echo "candidate_uri=$candidate_uri"
+            echo "current_task_definition=$current_task_definition"
+            echo "current_revision=$current_revision"
+            echo "rollback_digest=$rollback_digest"
+          } >> "$GITHUB_OUTPUT"
 
           {
             echo "## Deployment candidate preflight"
@@ -325,6 +346,195 @@ jobs:
             echo "- Rollback CRITICAL: $rollback_critical"
             echo "- Service: STABLE"
             echo "- Task definition invariants: PASS"
+            echo "- Allowlisted registration payload: PASS"
+            echo "- Only semantic change: containerDefinitions[0].image"
             echo "- Candidate image selected: \`${candidate_uri%%@*}@${candidate_digest}\`"
-            echo "- Deployment mutation: NOT IMPLEMENTED"
+            echo "- Previous task definition preserved: \`$current_task_definition\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Register the approved digest-pinned task revision
+        id: register
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          work_dir="$RUNNER_TEMP/ecs-deployment-$GITHUB_RUN_ID"
+          registration_payload="$work_dir/register-task-definition.json"
+          registration_response="$work_dir/register-task-definition-response.json"
+          registration_result="$work_dir/register-task-definition-result.json"
+          error_file="$work_dir/aws-error"
+
+          if ! aws ecs register-task-definition \
+            --region "$AWS_REGION" \
+            --cli-input-json "file://$registration_payload" \
+            --output json > "$registration_response" 2> "$error_file"; then
+            echo "RegisterTaskDefinition failed; see the sanitized AWS error below." >&2
+            sed -n '1,10p' "$error_file" >&2
+            exit 1
+          fi
+
+          python3 .github/scripts/validate_ecs_deployment_preflight.py registration \
+            --input "$registration_response" \
+            --previous-task-definition-arn "${{ steps.prepare.outputs.current_task_definition }}" \
+            --previous-revision "${{ steps.prepare.outputs.current_revision }}" \
+            --candidate-image "${{ steps.prepare.outputs.candidate_uri }}" \
+            --expected-cluster-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:cluster/${ECS_CLUSTER_NAME}" \
+            --expected-service-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:service/${ECS_CLUSTER_NAME}/${ECS_SERVICE_NAME}" \
+            --expected-service-name "$ECS_SERVICE_NAME" \
+            --expected-task-family "$ECS_TASK_FAMILY" \
+            --expected-container-name "$ECS_CONTAINER_NAME" \
+            --expected-execution-role-arn "$ECS_EXECUTION_ROLE_ARN" \
+            --expected-image-prefix "${AWS_NONPROD_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@" \
+            --expected-region "$AWS_REGION" \
+            --expected-target-group-arn "$ECS_TARGET_GROUP_ARN" \
+            --expected-alb-security-group-id "$ALB_SECURITY_GROUP_ID" > "$registration_result"
+
+          new_task_definition="$(jq -r '.new_task_definition_arn' "$registration_result")"
+          new_revision="$(jq -r '.new_task_definition_revision' "$registration_result")"
+          {
+            echo "new_task_definition=$new_task_definition"
+            echo "new_revision=$new_revision"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update only the exact service task-definition pointer
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          work_dir="$RUNNER_TEMP/ecs-deployment-$GITHUB_RUN_ID"
+          update_request="$work_dir/update-service.json"
+          update_response="$work_dir/update-service-response.json"
+          update_result="$work_dir/update-service-result.json"
+          error_file="$work_dir/aws-error"
+
+          python3 .github/scripts/validate_ecs_deployment_preflight.py update-request \
+            --task-definition-arn "${{ steps.register.outputs.new_task_definition }}" \
+            --output-request "$update_request" \
+            --expected-cluster-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:cluster/${ECS_CLUSTER_NAME}" \
+            --expected-service-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:service/${ECS_CLUSTER_NAME}/${ECS_SERVICE_NAME}" \
+            --expected-service-name "$ECS_SERVICE_NAME" \
+            --expected-task-family "$ECS_TASK_FAMILY" \
+            --expected-container-name "$ECS_CONTAINER_NAME" \
+            --expected-execution-role-arn "$ECS_EXECUTION_ROLE_ARN" \
+            --expected-image-prefix "${AWS_NONPROD_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@" \
+            --expected-region "$AWS_REGION" \
+            --expected-target-group-arn "$ECS_TARGET_GROUP_ARN" \
+            --expected-alb-security-group-id "$ALB_SECURITY_GROUP_ID" > "$work_dir/update-request-result.json"
+
+          if ! aws ecs update-service \
+            --region "$AWS_REGION" \
+            --cli-input-json "file://$update_request" \
+            --output json > "$update_response" 2> "$error_file"; then
+            echo "UpdateService failed; see the sanitized AWS error below." >&2
+            sed -n '1,10p' "$error_file" >&2
+            exit 1
+          fi
+
+          python3 .github/scripts/validate_ecs_deployment_preflight.py update-response \
+            --input "$update_response" \
+            --task-definition-arn "${{ steps.register.outputs.new_task_definition }}" \
+            --expected-cluster-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:cluster/${ECS_CLUSTER_NAME}" \
+            --expected-service-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:service/${ECS_CLUSTER_NAME}/${ECS_SERVICE_NAME}" \
+            --expected-service-name "$ECS_SERVICE_NAME" \
+            --expected-task-family "$ECS_TASK_FAMILY" \
+            --expected-container-name "$ECS_CONTAINER_NAME" \
+            --expected-execution-role-arn "$ECS_EXECUTION_ROLE_ARN" \
+            --expected-image-prefix "${AWS_NONPROD_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@" \
+            --expected-region "$AWS_REGION" \
+            --expected-target-group-arn "$ECS_TARGET_GROUP_ARN" \
+            --expected-alb-security-group-id "$ALB_SECURITY_GROUP_ID" > "$update_result"
+
+      - name: Wait for deployment stability and verify the serving digest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          work_dir="$RUNNER_TEMP/ecs-deployment-$GITHUB_RUN_ID"
+          service_json="$work_dir/deployed-service.json"
+          task_definition_json="$work_dir/deployed-task-definition.json"
+          task_list_json="$work_dir/task-list.json"
+          tasks_json="$work_dir/tasks.json"
+          target_health_json="$work_dir/target-health.json"
+          security_group_json="$work_dir/alb-security-group.json"
+
+          aws ecs wait services-stable \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER_NAME" \
+            --services "$ECS_SERVICE_NAME"
+
+          aws ecs describe-services \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER_NAME" \
+            --services "$ECS_SERVICE_NAME" \
+            --output json > "$service_json"
+          aws ecs describe-task-definition \
+            --region "$AWS_REGION" \
+            --task-definition "${{ steps.register.outputs.new_task_definition }}" \
+            --output json > "$task_definition_json"
+          aws ecs list-tasks \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER_NAME" \
+            --service-name "$ECS_SERVICE_NAME" \
+            --desired-status RUNNING \
+            --output json > "$task_list_json"
+          [[ "$(jq '.taskArns | length' "$task_list_json")" == "1" ]]
+          task_arn="$(jq -r '.taskArns[0]' "$task_list_json")"
+          aws ecs describe-tasks \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER_NAME" \
+            --tasks "$task_arn" \
+            --output json > "$tasks_json"
+          aws elbv2 describe-target-health \
+            --region "$AWS_REGION" \
+            --target-group-arn "$ECS_TARGET_GROUP_ARN" \
+            --output json > "$target_health_json"
+          aws ec2 describe-security-groups \
+            --region "$AWS_REGION" \
+            --group-ids "$ALB_SECURITY_GROUP_ID" \
+            --output json > "$security_group_json"
+
+          python3 .github/scripts/validate_ecs_deployment_preflight.py deployed \
+            --service "$service_json" \
+            --task-definition "$task_definition_json" \
+            --tasks "$tasks_json" \
+            --target-health "$target_health_json" \
+            --security-group "$security_group_json" \
+            --expected-task-definition-arn "${{ steps.register.outputs.new_task_definition }}" \
+            --expected-image "${{ steps.prepare.outputs.candidate_uri }}" \
+            --expected-cluster-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:cluster/${ECS_CLUSTER_NAME}" \
+            --expected-service-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:service/${ECS_CLUSTER_NAME}/${ECS_SERVICE_NAME}" \
+            --expected-service-name "$ECS_SERVICE_NAME" \
+            --expected-task-family "$ECS_TASK_FAMILY" \
+            --expected-container-name "$ECS_CONTAINER_NAME" \
+            --expected-execution-role-arn "$ECS_EXECUTION_ROLE_ARN" \
+            --expected-image-prefix "${AWS_NONPROD_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@" \
+            --expected-region "$AWS_REGION" \
+            --expected-target-group-arn "$ECS_TARGET_GROUP_ARN" \
+            --expected-alb-security-group-id "$ALB_SECURITY_GROUP_ID" > "$work_dir/deployed-result.json"
+
+          {
+            echo "## ECS deployment result"
+            echo
+            echo "- Source SHA: \`$SOURCE_SHA\`"
+            echo "- Candidate digest: \`${{ steps.prepare.outputs.candidate_digest }}\`"
+            echo "- Previous task definition: \`${{ steps.prepare.outputs.current_task_definition }}\`"
+            echo "- Previous rollback digest: \`${{ steps.prepare.outputs.rollback_digest }}\`"
+            echo "- New task definition: \`${{ steps.register.outputs.new_task_definition }}\`"
+            echo "- New revision: \`${{ steps.register.outputs.new_revision }}\`"
+            echo "- Service stability: PASS"
+            echo "- Running digest verification: PASS"
+            echo "- Target health: healthy"
+            echo "- Public task IP: absent"
+            echo "- ALB inbound rules: 0"
+            echo "- Previous task definition deregistered: NO"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove ephemeral deployment files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          work_dir="$RUNNER_TEMP/ecs-deployment-$GITHUB_RUN_ID"
+          if [[ -d "$work_dir" ]]; then
+            rm -rf -- "$work_dir"
+          fi
