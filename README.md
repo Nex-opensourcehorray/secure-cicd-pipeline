@@ -65,6 +65,9 @@ See [architecture](docs/architecture.md) and the
 - Application production and development dependencies are generated from
   small exact-version input files into complete SHA-256 hash locks. Docker,
   CI, and publication validation install them with `--require-hashes`.
+- Future ECS deployment runs produce a canonical sanitized evidence manifest
+  and checksum as a 90-day GitHub artifact. Durable deployment records require
+  separate human review and a normal governed pull request.
 
 ## CI Pipeline
 
@@ -93,6 +96,13 @@ After approval, the workflow rechecks the candidate and rollback digest for
 active HIGH/CRITICAL findings, clones the current task definition through an
 allowlist, changes only the image URI, registers one revision, and updates only
 the exact ECS service task-definition pointer.
+
+At a terminal result it builds an allowlisted evidence manifest for success,
+confirmed automatic rollback, pre-mutation failure, or unverified failure. The
+workflow uploads only the manifest and checksum, records both manifest and
+artifact digests, and deletes raw AWS working data afterward. It has no source
+write authority; durable records under `docs/evidence/deployments/` require a
+separate reviewed PR.
 
 ## AWS IAM / OIDC Model
 
@@ -148,6 +158,9 @@ status and evidence boundaries.
   so it is not four-eyes approval. Administrator bypass is disabled.
 - Python-installed security tools retain exact top-level versions but their
   larger dependency graphs are not cryptographically artifact-hash locked.
+- GitHub workflow logs and deployment-evidence artifacts are bounded to the
+  verified 90-day repository retention period; no external immutable archive
+  is currently configured.
 - The first live ECS promotion is deferred because no distinct scan-clean,
   trusted published candidate was available at closure.
 - The live rollback exercise is deferred and requires a separately approved,

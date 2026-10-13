@@ -1,11 +1,12 @@
 # Stage 10 Governance and Operational Hardening
 
-> Status: **STAGE 10.1 AND STAGE 10.2 COMPLETE; STAGE 10.3 APPLICATION
-> DEPENDENCIES HASH LOCKED**. The `main-governance` ruleset is active. The
-> owner disabled `nonprod` administrator bypass through the GitHub UI, and an
-> authenticated read-back verified the hardened state on 2026-10-13. Stage
-> 10.3 changes source and documentation only; it performs no Environment, AWS,
-> IAM, Terraform, ECS, ECR, or live-service mutation.
+> Status: **STAGE 10.1–10.3 COMPLETE; STAGE 10.4 DEPLOYMENT EVIDENCE
+> RETENTION IMPLEMENTED**. The `main-governance` ruleset is active, `nonprod`
+> administrator bypass is disabled, and application dependencies are hash
+> locked. The public repository's Actions artifact/log retention was read back
+> as 90 days, so Stage 10.4 requires no settings mutation. Stage 10.4 changes
+> source and documentation only; it performs no Environment, AWS, IAM,
+> Terraform, ECS, ECR, or live-service mutation.
 
 ## Purpose
 
@@ -28,10 +29,10 @@ technical deployment path:
 
 ## Trusted baseline
 
-The Stage 10.3 baseline was established from a successful remote fetch, the
+The Stage 10.4 baseline was established from a successful remote fetch, the
 local repository, authenticated GitHub administration reads, check runs, and
-workflow-run evidence. Local `main` was advanced by fast-forward only before
-the continuing Stage 10 branch was created.
+workflow-run evidence. The continuing Stage 10 branch was clean, matched its
+remote, and remained zero commits behind `origin/main`.
 
 | Item | Evidence | Result |
 | --- | --- | --- |
@@ -40,10 +41,9 @@ the continuing Stage 10 branch was created.
 | Remote default branch | `main` | VERIFIED |
 | `origin/main` / remote `main` | `6c35fad916f531863bc82e39d821126f7f0feca9` | MATCH |
 | Stage 10.2 closure | PR #22, merge commit `6c35fad916f531863bc82e39d821126f7f0feca9` | MERGED |
-| Post-merge CI | workflow `CI`, run #59 | PASS |
-| Post-merge Security | workflow `Security`, run #59 | PASS |
+| Stage 10.3 feature baseline | `48264d79513a63fe50f17a890aeff9cdb23730dd`; remote CI #60 and Security #60 | PASS |
 | Starting worktree | clean; `git diff --check` returned no findings | PASS |
-| Continuing Stage 10 branch | `stage-10-hardening-completion`, created at the verified remote `main` commit | ESTABLISHED |
+| Continuing Stage 10 branch | `stage-10-hardening-completion`; zero behind / one ahead of `origin/main` | VERIFIED |
 
 No reset or history rewrite was used. Ruleset `24978564` was also re-read and
 remained active, while branch metadata reported `main` as protected.
@@ -55,7 +55,7 @@ remained active, while branch metadata reported `main` as protected.
 | `main` governance | Ruleset `24978564` is active and live branch metadata reports `protected: true`. | CONTROL ACTIVE — PR flow, seven checks, freshness, review-thread resolution, deletion protection, and non-fast-forward protection are enforced. |
 | Independent deployment approval | One owner reviewer remains and self-review is allowed; administrator bypass is disabled. | The Environment is a mandatory human-visible gate, but one maintainer cannot provide four-eyes separation of duties. |
 | Python artifact integrity | Application production and development graphs are exact-version and SHA-256 hash locked. Python-installed security tools remain exact-version only by documented proportional decision. | Application installs fail closed on altered or unapproved artifacts; the larger security-tool graphs retain registry-resolution risk. |
-| Evidence retention | Deployment summaries and logs exist, but no explicit repository retention setting or durable sanitized deployment manifest is recorded. | Evidence can expire or become hard to correlate during review or investigation. |
+| Evidence retention | Repository Actions retention is verified at 90 days. The deployment workflow now creates a canonical sanitized manifest and checksum artifact, with manual PR-only promotion to a durable repository directory. | Operational evidence remains intentionally bounded; durable records require human review and a real deployment. |
 | Human notification | Runtime alarms and focused EventBridge rules publish to a source-restricted SNS topic with zero subscriptions. | High-value runtime and security signals have no confirmed human recipient. |
 | Live promotion/rollback | No distinct scan-clean candidate was available at Stage 9 closure. | Operational evidence is deferred, but source/control completeness is not affected. |
 
@@ -399,49 +399,107 @@ and make rebuilds brittle. The floor was not weakened.
 
 ## Evidence retention
 
-### Current evidence locations
+### Live repository setting
 
-| Evidence | Current location | Current limitation |
+The documented repository Actions artifact-and-log retention endpoint was
+read with authenticated administration access on 2026-10-13.
+
+```text
+repository visibility: public
+repository retention: 90 days
+public-repository maximum: 90 days
+desired Stage 10 value: 90 days
+mutation required: NO
+classification: NO-OP — REPOSITORY RETENTION ALREADY AT DESIRED MAXIMUM
+```
+
+The value controls bounded GitHub operational evidence. It does not promise
+that external AWS records share that retention and does not make old or
+expired evidence reappear.
+
+### Three evidence layers
+
+| Layer | Evidence | Retention and governance |
 | --- | --- | --- |
-| Source/check result | GitHub commits, check runs, workflow runs | Retention setting was not readable with the current integration. |
-| Deployment inputs/outcome | GitHub workflow summaries and logs | No live deployment exists; logs/summaries are retention-bound. |
-| Approval | GitHub Environment deployment review record | Tied to GitHub retention and account access. |
-| AWS control-plane calls | Organization-owned CloudTrail | Exact retention/integrity configuration is externally owned and not claimed here. |
-| ECS rollout detail | ECS service events/task-definition revisions | Operational data is not a durable portfolio archive. |
-| Application/network evidence | CloudWatch application logs and VPC Flow Logs | Explicit 14-day retention. |
-| Vulnerability/security findings | Inspector and organization-owned Security Hub | Service retention and organizational policy are external to this repository. |
+| 1 — GitHub native | Workflow run, seven check results where applicable, job logs, summary, and Environment deployment approval record | Repository-configured 90 days; operational rather than permanent evidence |
+| 2 — Workflow artifact | `deployment-evidence.json` and `deployment-evidence.sha256` only | Uploaded for 90 days as `nonprod-deployment-evidence-<run_id>` by official `actions/upload-artifact` v7.0.2 pinned to commit `cf430e030ddbb5b0abf93d22962f4752f3646cd9` |
+| 3 — Durable portfolio record | A reviewed manifest under `docs/evidence/deployments/` | Repository lifetime until governed removal; manual feature branch and PR only |
 
-### Minimal portfolio-grade model
+The deployment workflow retains `contents: read`, `actions: read` only where
+source provenance needs it, and `id-token: write` only in the deployment job.
+It receives no `contents: write`, `actions: write`, package, issue, or pull
+request write permission. It cannot commit evidence, push a branch, or call a
+repository file-write API. Durable evidence therefore remains independent of
+the deployment credential path.
 
-| What | Where | Retention | Access | Integrity |
-| --- | --- | --- | --- | --- |
-| Full workflow execution and job logs | GitHub Actions | Set/confirm the public-repository maximum of 90 days | Authenticated repository readers | GitHub run/check identity and immutable source SHA |
-| Sanitized deployment manifest plus its SHA-256 checksum | Small GitHub Actions artifact | 90 days | Authenticated repository readers | Pinned upload action, checksum, workflow run identity |
-| Durable sanitized deployment index entry | Reviewed file under `docs/evidence/deployments/` added by a later human-reviewed PR, never by the deployment credentialed job | Repository lifetime | Public; therefore deliberately sanitized | Protected `main`, PR/check history, manifest checksum |
-| Approval record | GitHub Environment/run metadata | 90-day operational target; retain only a sanitized approval result/timestamp in the durable entry | Authenticated readers; sanitized entry public | Correlation by run ID and source SHA |
-| Authoritative AWS mutation trail | Existing organization-owned CloudTrail/Security Hub controls | Record the organization policy when owner evidence is available; do not invent a period | Authorized AWS/security operators | Organization-owned controls; not claimed until verified |
-| Runtime logs | Existing CloudWatch log groups | 14 days | Authorized NonProd operators | AWS service controls and least-privilege access |
+### Manifest and checksum
 
-The sanitized manifest should record only:
+Schema version `1` correlates the GitHub run and workflow-source SHA with the
+candidate source SHA, digest and vulnerability counts, safe rollback baseline,
+revision integers, terminal outcome, and validated runtime booleans. Approved
+outcomes are:
 
-- source commit SHA and immutable image digest;
-- workflow run ID/attempt and UTC timestamp;
-- approval result, without reviewer email or token data;
-- vulnerability gate decision and severity counts;
-- previous/new task-definition revision numbers, not full account-bearing ARNs;
-- deployment result and rollback classification; and
-- manifest schema version and checksum.
+```text
+SUCCESS
+AUTOMATIC_ROLLBACK_CONFIRMED
+FAIL_CLOSED_UNVERIFIED
+PRE_MUTATION_FAILURE
+```
 
-It must never contain credentials, AWS session output, raw OIDC tokens, secret
-values, Environment/repository variables, personal notification endpoints,
-private IP addresses, task IDs, local paths, full environment dumps, or
-unnecessary account/resource identifiers. Raw scan reports should not be
-committed merely for volume; record the decision, relevant finding IDs when an
-exception exists, and a link to access-controlled evidence.
+Unavailable optional values are omitted. A pre-mutation failure does not
+invent an attempted revision. Confirmed rollback explicitly records
+`succeeded: false` and `runtime_recovery_verified: true`; it is never presented
+as a successful promotion. Successful and rollback evidence require zero
+candidate/rollback HIGH and CRITICAL findings and verified stable, healthy,
+private runtime state with zero ALB ingress rules.
+
+The standard-library generator accepts only named allowlisted arguments,
+rejects unknown keys and malformed SHAs/digests/counts/revisions/outcomes,
+does not read the process environment wholesale, and writes sorted,
+newline-terminated UTF-8 JSON. It scans allowed values for credential, JWT,
+private-address, authorization, and local-path patterns. The output directory
+must contain exactly the manifest and checksum—never raw AWS responses,
+temporary directories, AWS errors, task IDs, ENI IDs, or private addresses.
+
+`deployment-evidence.sha256` uses:
+
+```text
+<sha256>  deployment-evidence.json
+```
+
+The helper independently verifies the checksum and canonical serialization
+before upload. The checksum is an integrity and correlation aid, not a digital
+signature. GitHub's separate artifact digest is recorded in the workflow
+summary when upload succeeds.
+
+### Terminal behavior and cleanup
+
+Evidence generation, upload, summary, and cleanup are the only finalization
+steps allowed to run after an earlier deployment-step failure. They execute
+after outcome classification and before deletion of raw ephemeral working
+data. Upload paths name the two evidence files explicitly and use
+`if-no-files-found: error`; the raw deployment directory is never uploaded.
+
+Evidence generation or upload failure makes the workflow fail. It cannot
+trigger `RegisterTaskDefinition`, rerun `UpdateService`, issue a rollback, or
+otherwise mutate AWS. A failed deployment stays failed even when its evidence
+artifact uploads successfully.
+
+### Durable promotion
+
+No live deployment record is created in Stage 10.4. After a meaningful future
+deployment, a maintainer downloads the artifact, verifies its checksum and
+schema, reviews sanitization and run correlation, then copies only the JSON
+manifest under the documented `YYYY-MM-DD-run-<github_run_id>.json` convention.
+The record enters through a normal feature branch, required-check PR, review,
+and merge. Stage 9.3-R1 remains preflight validation—not retrospective
+deployment evidence.
 
 This model intentionally avoids a new S3 evidence bucket, KMS key, or paid
-long-retention service. Revisit immutable external archival only if the
-portfolio becomes an operational service with formal audit requirements.
+long-retention service. CloudTrail and Security Hub retention remain
+organization-owned and are not claimed without verification. Existing
+CloudWatch application and VPC Flow Log retention remains the validated
+14-day value.
 
 ## Human alerting readiness
 
@@ -509,8 +567,8 @@ evidence retention because the topic and focused signals already exist.
 | 10.0 | Governance architecture and gap plan | This reviewed design, trusted baseline, exact ruleset draft | Documentation and feature-branch publication only |
 | 10.1 | `main` protection/ruleset readiness and apply | Revalidated checks/schema, owner-approved ruleset, test PR proving enforcement and recovery | Repository settings gate |
 | 10.2 | Deployment approval governance | Owner-disabled administrator bypass with authenticated read-back; self-review remains allowed and no independent reviewer is claimed | COMPLETE |
-| 10.3 | Dependency/artifact integrity | Reproducible application production/development hash locks and maintenance procedure; security-tool locks proportionately deferred | Source changes only; no publication/deployment |
-| 10.4 | Deployment evidence retention | Sanitized schema, 90-day GitHub retention decision, artifact/index workflow design | Repository/Actions settings gate where required |
+| 10.3 | Dependency/artifact integrity | PASS — reproducible application production/development hash locks and maintenance procedure; security-tool locks proportionately deferred | Source changes only; no publication/deployment |
+| 10.4 | Deployment evidence retention | PASS — live 90-day repository setting, canonical sanitized manifest/checksum artifact, and manual PR-only durable record | Source changes only; retention setting already at target |
 | 10.5 | Human-owned alerting readiness | Destination ownership/runbook and separately approved end-to-end delivery test | AWS/SNS subscription and notification gate |
 | 10.6 | Comprehensive governance/security validation | Full Stage 10 diff, workflow, dependency, secret, documentation, and live-settings evidence | Read-only unless separately approved |
 | 10.7 | Stage 10 closure | One major PR, reviewed checks, honest residual risks and deferred live exercises | Merge-to-`main` gate |

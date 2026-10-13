@@ -38,6 +38,10 @@ jobs:
       - name: Run tests
         run: python -m pytest
 
+      - name: Run workflow helper tests
+        working-directory: .
+        run: python -m unittest discover -s .github/scripts/tests -p "test_*.py"
+
   container:
     name: Container validation
     runs-on: ubuntu-latest

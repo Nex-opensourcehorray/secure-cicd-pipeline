@@ -1,0 +1,459 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Nex-opensourcehorray/secure-cicd-pipeline/blob/main/docs/evidence/deployments/deployment-evidence.schema.json",
+  "title": "Secure CI/CD NonProd deployment evidence",
+  "description": "Sanitized, deterministic evidence for one deployment workflow outcome.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "repository",
+    "environment",
+    "task_definition_family",
+    "workflow",
+    "candidate",
+    "deployment"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "repository": {
+      "const": "Nex-opensourcehorray/secure-cicd-pipeline"
+    },
+    "environment": {
+      "const": "nonprod"
+    },
+    "task_definition_family": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,255}$"
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "run_id",
+        "run_attempt",
+        "source_workflow_sha"
+      ],
+      "properties": {
+        "name": {
+          "const": "Deploy approved image to NonProd ECS"
+        },
+        "run_id": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "run_attempt": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "source_workflow_sha": {
+          "$ref": "#/$defs/gitSha"
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_sha"
+      ],
+      "properties": {
+        "source_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "digest": {
+          "$ref": "#/$defs/imageDigest"
+        },
+        "high_findings": {
+          "$ref": "#/$defs/findingCount"
+        },
+        "critical_findings": {
+          "$ref": "#/$defs/findingCount"
+        }
+      },
+      "dependentRequired": {
+        "digest": [
+          "high_findings",
+          "critical_findings"
+        ],
+        "high_findings": [
+          "digest",
+          "critical_findings"
+        ],
+        "critical_findings": [
+          "digest",
+          "high_findings"
+        ]
+      }
+    },
+    "rollback_baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "digest",
+        "high_findings",
+        "critical_findings"
+      ],
+      "properties": {
+        "revision": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "digest": {
+          "$ref": "#/$defs/imageDigest"
+        },
+        "high_findings": {
+          "$ref": "#/$defs/findingCount"
+        },
+        "critical_findings": {
+          "$ref": "#/$defs/findingCount"
+        }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcome",
+        "succeeded",
+        "runtime_recovery_verified"
+      ],
+      "properties": {
+        "outcome": {
+          "enum": [
+            "SUCCESS",
+            "AUTOMATIC_ROLLBACK_CONFIRMED",
+            "FAIL_CLOSED_UNVERIFIED",
+            "PRE_MUTATION_FAILURE"
+          ]
+        },
+        "succeeded": {
+          "type": "boolean"
+        },
+        "runtime_recovery_verified": {
+          "type": "boolean"
+        },
+        "previous_revision": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "attempted_revision": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "restored_revision": {
+          "$ref": "#/$defs/positiveInteger"
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "service_stable",
+        "target_healthy",
+        "public_task_ip_absent",
+        "alb_ingress_rules"
+      ],
+      "properties": {
+        "service_stable": {
+          "type": "boolean"
+        },
+        "target_healthy": {
+          "type": "boolean"
+        },
+        "public_task_ip_absent": {
+          "type": "boolean"
+        },
+        "alb_ingress_rules": {
+          "$ref": "#/$defs/findingCount"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "deployment": {
+            "properties": {
+              "outcome": {
+                "enum": [
+                  "SUCCESS",
+                  "AUTOMATIC_ROLLBACK_CONFIRMED"
+                ]
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "rollback_baseline",
+          "verification"
+        ],
+        "properties": {
+          "candidate": {
+            "required": [
+              "digest",
+              "high_findings",
+              "critical_findings"
+            ],
+            "properties": {
+              "high_findings": {
+                "const": 0
+              },
+              "critical_findings": {
+                "const": 0
+              }
+            }
+          },
+          "rollback_baseline": {
+            "properties": {
+              "high_findings": {
+                "const": 0
+              },
+              "critical_findings": {
+                "const": 0
+              }
+            }
+          },
+          "deployment": {
+            "required": [
+              "previous_revision",
+              "attempted_revision"
+            ]
+          },
+          "verification": {
+            "properties": {
+              "service_stable": {
+                "const": true
+              },
+              "target_healthy": {
+                "const": true
+              },
+              "public_task_ip_absent": {
+                "const": true
+              },
+              "alb_ingress_rules": {
+                "const": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "deployment": {
+            "properties": {
+              "outcome": {
+                "const": "FAIL_CLOSED_UNVERIFIED"
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "verification"
+          ]
+        },
+        "properties": {
+          "deployment": {
+            "properties": {
+              "succeeded": {
+                "const": false
+              },
+              "runtime_recovery_verified": {
+                "const": false
+              }
+            },
+            "not": {
+              "required": [
+                "restored_revision"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "deployment": {
+            "properties": {
+              "outcome": {
+                "const": "SUCCESS"
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "deployment": {
+            "properties": {
+              "succeeded": {
+                "const": true
+              },
+              "runtime_recovery_verified": {
+                "const": false
+              }
+            },
+            "not": {
+              "required": [
+                "restored_revision"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "deployment": {
+            "properties": {
+              "outcome": {
+                "const": "AUTOMATIC_ROLLBACK_CONFIRMED"
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "deployment": {
+            "required": [
+              "restored_revision"
+            ],
+            "properties": {
+              "succeeded": {
+                "const": false
+              },
+              "runtime_recovery_verified": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "deployment": {
+            "properties": {
+              "outcome": {
+                "const": "PRE_MUTATION_FAILURE"
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "rollback_baseline"
+              ]
+            },
+            {
+              "required": [
+                "verification"
+              ]
+            }
+          ]
+        },
+        "properties": {
+          "candidate": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "digest"
+                  ]
+                },
+                {
+                  "required": [
+                    "high_findings"
+                  ]
+                },
+                {
+                  "required": [
+                    "critical_findings"
+                  ]
+                }
+              ]
+            }
+          },
+          "deployment": {
+            "properties": {
+              "succeeded": {
+                "const": false
+              },
+              "runtime_recovery_verified": {
+                "const": false
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "previous_revision"
+                  ]
+                },
+                {
+                  "required": [
+                    "attempted_revision"
+                  ]
+                },
+                {
+                  "required": [
+                    "restored_revision"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "imageDigest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "findingCount": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}
