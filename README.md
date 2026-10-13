@@ -133,8 +133,9 @@ deployment circuit breaker. Detailed live Stage 8 evidence is recorded in
 ## Alerting and Response
 
 The four CloudWatch alarms and two focused EventBridge rules route actionable
-runtime and security conditions to the existing NonProd SNS topic. The target
-operating model is one confirmed human-owned email subscription managed as a
+runtime and security conditions to the existing NonProd SNS topic. One
+human-owned email subscription is confirmed, and the owner confirmed receipt
+of one separately approved controlled test. The endpoint is managed as a
 manual operational integration, never as repository data or Terraform state.
 
 GitHub remains the native notification path for CI, Security, PR, and
@@ -172,6 +173,11 @@ status and evidence boundaries.
 Stage 10 governance, dependency integrity, evidence retention, and human
 alerting controls passed comprehensive validation on the feature-source SHA
 recorded in [Stage 10 validation evidence](docs/stage-10-validation-evidence.md).
+Operator access was revalidated through IAM Identity Center; a discovered
+legacy local credential was removed after its server-side key was confirmed
+inactive, with no repository or Git-history exposure found. See the concise
+[Stage 10 closure evidence](docs/stage-10-closure-evidence.md) for the complete
+control map, residual risks, deferred exercises, and final PR boundary.
 
 ## Known Limitations
 

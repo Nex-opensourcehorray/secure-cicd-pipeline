@@ -1,6 +1,6 @@
 # Stage 10 Governance and Operational Hardening
 
-> Status: **STAGE 10.0–10.6 VALIDATED; STAGE 10.7 CLOSURE PENDING**. Stage 10.5
+> Status: **STAGE 10.0–10.6 COMPLETE; STAGE 10.7 FINAL PR PENDING**. Stage 10.5
 > completed one confirmed human subscription and one owner-confirmed controlled
 > delivery test. Stage 10.6 revalidated the live governance, AWS alert path,
 > dependency and evidence controls, four Terraform roots, and all seven remote
@@ -660,10 +660,14 @@ evidence retention because the topic and focused signals already exist.
 | 10.4 | Deployment evidence retention | PASS — live 90-day repository setting, canonical sanitized manifest/checksum artifact, and manual PR-only durable record | Source changes only; retention setting already at target |
 | 10.5 | Human-owned alerting readiness | PASS — one confirmed human subscription, one controlled test, owner receipt confirmed; endpoint redacted | Completed under the separate AWS/SNS subscription and notification gate |
 | 10.6 | Comprehensive governance/security validation | PASS — full Stage 10 diff, workflow, dependency, secret, documentation, live-settings, four drift-free plans, and 7/7 remote checks | Read-only validation plus authorized CI/Security dispatch and documentation publication |
-| 10.7 | Stage 10 closure | One major PR, reviewed checks, honest residual risks and deferred live exercises | Merge-to-`main` gate |
+| 10.7 | Stage 10 closure | CLOSURE REVIEW COMPLETE — one major PR, governed checks, honest residual risks, and deferred live exercises remain at the final gate | PR-creation and merge-to-`main` gates |
 
 Related completion changes should accumulate on `stage-10-hardening-completion`; a PR is
 not required after each substage.
+
+The concise [Stage 10 closure evidence](stage-10-closure-evidence.md) maps the
+complete feature delta to its controls and records the final residual risks,
+deferred evidence, and explicit non-claims.
 
 ## Approval boundaries
 
