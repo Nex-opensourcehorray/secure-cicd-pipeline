@@ -47,6 +47,6 @@ The topic is an integration point, not a completed notification path: it has no
 email, SMS, or other human subscription. Alarm state `OK` demonstrates current
 metric state, not end-to-end human delivery.
 
-The current [threat model](threat-model.md) is intentionally not declared
-complete. Stage 9 must extend it for deployment identity, authorization,
-artifact selection, approval, rollback, and workflow-compromise scenarios.
+The current [threat model](threat-model.md) now covers deployment identity,
+authorization, artifact selection, approval, rollback, workflow compromise,
+and the residual risks retained at Stage 9 closure.
