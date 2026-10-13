@@ -82,8 +82,10 @@ groups with 14-day retention. Four alarms cover unhealthy targets, target 5XX,
 CPU, and memory. Two EventBridge rules route failure-oriented ECS stops and
 active HIGH/CRITICAL project ECR findings to the source-restricted SNS topic.
 
-The topic intentionally has no human subscription. End-to-end notification
-delivery is not complete until a separately approved destination is added.
+This Terraform root intentionally owns no human subscription. A private human
+endpoint is a manually governed operational integration so it does not enter
+Terraform state. End-to-end delivery is not complete until a separately
+approved destination is confirmed and one controlled test is received.
 CloudTrail, GuardDuty, Security Hub, and Inspector are organization-owned and
 are not configured by this root.
 
@@ -136,6 +138,7 @@ approval. No automatic destruction procedure is provided here.
 ## Deferred exposure controls
 
 HTTPS/ACM, public ALB ingress, HTTP-to-HTTPS redirect, WAF/rate limiting, ALB
-access logs, human SNS subscriptions, Container Insights, autoscaling, and
+access logs, Terraform-managed human SNS subscriptions, Container Insights,
+autoscaling, and
 multi-task high availability are not implemented. They remain separate design
 and approval gates; Stage 8 closure does not authorize them.

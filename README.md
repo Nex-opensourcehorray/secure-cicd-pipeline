@@ -68,6 +68,9 @@ See [architecture](docs/architecture.md) and the
 - Future ECS deployment runs produce a canonical sanitized evidence manifest
   and checksum as a 90-day GitHub artifact. Durable deployment records require
   separate human review and a normal governed pull request.
+- Runtime and HIGH/CRITICAL image signals converge on one source-restricted SNS
+  topic. Human subscription ownership is separated from Terraform so private
+  endpoint data does not enter state or source.
 
 ## CI Pipeline
 
@@ -127,6 +130,20 @@ logs, VPC Flow Logs, alarms, EventBridge security signals, and an ECS
 deployment circuit breaker. Detailed live Stage 8 evidence is recorded in
 [runtime evidence](docs/stage-8-runtime-evidence.md).
 
+## Alerting and Response
+
+The four CloudWatch alarms and two focused EventBridge rules route actionable
+runtime and security conditions to the existing NonProd SNS topic. The target
+operating model is one confirmed human-owned email subscription managed as a
+manual operational integration, never as repository data or Terraform state.
+
+GitHub remains the native notification path for CI, Security, PR, and
+deployment-workflow failures. Successful runs, normal ECS lifecycle events,
+normal CPU/memory, and LOW/MEDIUM Inspector findings are intentionally excluded
+from human alerting. See the
+[NonProd alert response runbook](docs/runbooks/nonprod-alert-response.md) for
+triage, acknowledgement, privacy, rotation, and gated delivery-test procedures.
+
 ## Rollback Model
 
 The deployment workflow observes ECS automatic circuit-breaker rollback; it
@@ -161,6 +178,9 @@ status and evidence boundaries.
 - GitHub workflow logs and deployment-evidence artifacts are bounded to the
   verified 90-day repository retention period; no external immutable archive
   is currently configured.
+- No confirmed human SNS subscriber or end-to-end alert delivery evidence
+  exists yet; creating the subscription and sending one test notification are
+  separate explicitly approved AWS mutations.
 - The first live ECS promotion is deferred because no distinct scan-clean,
   trusted published candidate was available at closure.
 - The live rollback exercise is deferred and requires a separately approved,

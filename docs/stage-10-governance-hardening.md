@@ -1,12 +1,11 @@
 # Stage 10 Governance and Operational Hardening
 
-> Status: **STAGE 10.1–10.3 COMPLETE; STAGE 10.4 DEPLOYMENT EVIDENCE
-> RETENTION IMPLEMENTED**. The `main-governance` ruleset is active, `nonprod`
-> administrator bypass is disabled, and application dependencies are hash
-> locked. The public repository's Actions artifact/log retention was read back
-> as 90 days, so Stage 10.4 requires no settings mutation. Stage 10.4 changes
-> source and documentation only; it performs no Environment, AWS, IAM,
-> Terraform, ECS, ECR, or live-service mutation.
+> Status: **STAGE 10.1–10.4 COMPLETE; STAGE 10.5 ALERTING READINESS
+> DOCUMENTED, LIVE VALIDATION PENDING AWS AUTHENTICATION**. The existing
+> Terraform signal path is source-verified and the human response lifecycle is
+> documented. No current AWS session was available for live topic, alarm,
+> EventBridge, subscription, or drift-plan read-back. No subscription request
+> or test notification has been sent.
 
 ## Purpose
 
@@ -29,7 +28,7 @@ technical deployment path:
 
 ## Trusted baseline
 
-The Stage 10.4 baseline was established from a successful remote fetch, the
+The Stage 10.5 baseline was established from a successful remote fetch, the
 local repository, authenticated GitHub administration reads, check runs, and
 workflow-run evidence. The continuing Stage 10 branch was clean, matched its
 remote, and remained zero commits behind `origin/main`.
@@ -41,9 +40,9 @@ remote, and remained zero commits behind `origin/main`.
 | Remote default branch | `main` | VERIFIED |
 | `origin/main` / remote `main` | `6c35fad916f531863bc82e39d821126f7f0feca9` | MATCH |
 | Stage 10.2 closure | PR #22, merge commit `6c35fad916f531863bc82e39d821126f7f0feca9` | MERGED |
-| Stage 10.3 feature baseline | `48264d79513a63fe50f17a890aeff9cdb23730dd`; remote CI #60 and Security #60 | PASS |
+| Stage 10.4 feature baseline | `c3dc7395eb507ae573e90f1ffa25daabe1927875`; remote CI #61 and Security #61 | PASS |
 | Starting worktree | clean; `git diff --check` returned no findings | PASS |
-| Continuing Stage 10 branch | `stage-10-hardening-completion`; zero behind / one ahead of `origin/main` | VERIFIED |
+| Continuing Stage 10 branch | `stage-10-hardening-completion`; zero behind / two ahead of `origin/main` | VERIFIED |
 
 No reset or history rewrite was used. Ruleset `24978564` was also re-read and
 remained active, while branch metadata reported `main` as protected.
@@ -56,7 +55,7 @@ remained active, while branch metadata reported `main` as protected.
 | Independent deployment approval | One owner reviewer remains and self-review is allowed; administrator bypass is disabled. | The Environment is a mandatory human-visible gate, but one maintainer cannot provide four-eyes separation of duties. |
 | Python artifact integrity | Application production and development graphs are exact-version and SHA-256 hash locked. Python-installed security tools remain exact-version only by documented proportional decision. | Application installs fail closed on altered or unapproved artifacts; the larger security-tool graphs retain registry-resolution risk. |
 | Evidence retention | Repository Actions retention is verified at 90 days. The deployment workflow now creates a canonical sanitized manifest and checksum artifact, with manual PR-only promotion to a durable repository directory. | Operational evidence remains intentionally bounded; durable records require human review and a real deployment. |
-| Human notification | Runtime alarms and focused EventBridge rules publish to a source-restricted SNS topic with zero subscriptions. | High-value runtime and security signals have no confirmed human recipient. |
+| Human notification | Terraform defines one source-restricted SNS topic, four focused alarms, and two focused EventBridge routes. A runbook now governs one manual human email subscription. Live subscription state could not be re-read because no AWS session was available. | High-value signals still have no proven confirmed recipient or end-to-end delivery. |
 | Live promotion/rollback | No distinct scan-clean candidate was available at Stage 9 closure. | Operational evidence is deferred, but source/control completeness is not affected. |
 
 ## Threat and governance model
@@ -503,19 +502,85 @@ CloudWatch application and VPC Flow Log retention remains the validated
 
 ## Human alerting readiness
 
-The existing runtime path is already:
+### Authentication and live-read boundary
+
+AWS CLI discovery on 2026-10-13 returned `NoCredentials`, and no configured
+profile was available to identify a NonProd operator session. This is recorded
+as:
+
+```text
+AWS SESSION EXPIRED / AUTHENTICATION REQUIRED
+```
+
+It is not classified as infrastructure drift. The live SNS topic, policy,
+tags, subscription count, alarm states, EventBridge rules/targets, and
+refresh-enabled Terraform plan remain unverified for this substage. A
+subscription gate cannot be declared ready until an authenticated identity is
+proved to be in account `119033255630`, Region `ap-southeast-1`, and all live
+readiness checks pass.
+
+### Source-verified signal path
+
+The existing Terraform path is:
 
 ```text
 CloudWatch alarms / focused EventBridge security and ECS signals
   -> source-restricted NonProd SNS topic
-  -> no subscription
+  -> manually governed human subscription seam
 ```
 
-The least-complex useful model is one confirmed human-owned email destination
-on the existing SNS topic, plus GitHub-native failure notifications for the
-owner's CI/CD workflows. The endpoint must not be committed to this public
-repository. Subscription creation, confirmation, and any Terraform/state
-handling require their own AWS/settings approval gate.
+Source review found no duplicate topic and no `aws_sns_topic_subscription`
+resource. Terraform owns the topic, topic policy, four alarms, two rules, and
+their SNS targets. The policy grants `sns:Publish` only to
+`cloudwatch.amazonaws.com` for the four exact alarm ARNs and to
+`events.amazonaws.com` for the two exact rule ARNs, with
+`aws:SourceAccount = 119033255630` in both statements. Source contains no
+anonymous or wildcard principal.
+
+| Signal | Source configuration | Stage 10.5 result |
+| --- | --- | --- |
+| ALB unhealthy targets | `UnHealthyHostCount`, maximum >= 1, 60-second period, 2/2 datapoints | SOURCE VERIFIED; live state pending |
+| Target HTTP 5XX | `HTTPCode_Target_5XX_Count`, sum >= 1, one five-minute period | SOURCE VERIFIED; live state pending |
+| ECS CPU | average `CPUUtilization` >= 80%, two five-minute periods | SOURCE VERIFIED; live state pending |
+| ECS memory | average `MemoryUtilization` >= 80%, two five-minute periods | SOURCE VERIFIED; live state pending |
+| ECS task failure | exact cluster/service, `STOPPED`, only `EssentialContainerExited` and `TaskFailedToStart` | SOURCE VERIFIED; live rule/target pending |
+| Inspector finding | ACTIVE HIGH/CRITICAL `AWS_ECR_CONTAINER_IMAGE` findings for `secure-cicd-demo` | SOURCE VERIFIED; live rule/target pending |
+
+The topic's service-default encryption posture remains an accepted NonProd
+design decision: alert payloads are operational metadata and a dedicated CMK
+is outside this portfolio scope. This does not permit secrets or sensitive
+application data in alert messages.
+
+### Human integration and ownership seam
+
+The target is exactly one confirmed human-owned email destination for the
+Portfolio / NonProd service owner, currently `Nex-opensourcehorray`. The
+endpoint is supplied only at execution time and must not enter source,
+Terraform state, GitHub variables/secrets, workflow evidence, or public
+reports.
+
+The human subscription remains a manual operational integration. Managing it
+with Terraform would retain private endpoint data in state without improving
+the security of this solo-portfolio workflow. Neither the deployment workflow
+nor its AWS roles need `sns:Subscribe` or `sns:Publish`; a separately
+authenticated owner/operator performs the approved lifecycle on the exact
+topic.
+
+Subscription and delivery have three distinct states:
+
+```text
+SUBSCRIPTION REQUESTED
+  -> SUBSCRIPTION CONFIRMED
+  -> END-TO-END DELIVERY VERIFIED
+```
+
+An API request is not confirmation. Confirmation requires a real subscription
+ARN from `ListSubscriptionsByTopic`; delivery additionally requires the owner
+to confirm receipt of exactly one controlled test message. The approved design
+does not trigger a CloudWatch alarm, vulnerability, task crash, 5XX response,
+or resource exhaustion merely to test delivery.
+
+### Alert categories and response expectations
 
 | Category | High-value conditions | Proposed path | Noise control |
 | --- | --- | --- | --- |
@@ -524,11 +589,36 @@ handling require their own AWS/settings approval gate.
 | RUNTIME DEGRADED | Unhealthy target, target 5XX, sustained CPU/memory alarm, failure-oriented ECS stop | Existing CloudWatch/EventBridge -> SNS -> confirmed human destination | Alarm evaluation windows and failure-only ECS stop codes; avoid all task state changes. |
 | ACTION REQUIRED | Repeated CI/Security failure on a PR intended for merge | GitHub-native Actions notification and PR status | No notification for every successful or draft run. Owner triages at the PR. |
 
-Stage 10.5 should define an owner, acknowledgement expectation, and a simple
-test message under an explicit gate. It should verify end-to-end delivery and
-document unsubscribe/rotation handling without recording the private endpoint.
-Success notifications are excluded. Recovery notifications may be added only
-where they help close an incident rather than double alert volume.
+These are portfolio expectations rather than a production SLA: SECURITY
+CRITICAL is acknowledged in the same working session or as soon as practical;
+DEPLOYMENT FAILED in the same deployment session; RUNTIME DEGRADED within a
+reasonable NonProd response window; and ACTION REQUIRED before PR merge.
+
+No human alert is required for successful CI/Security/deployment, normal ECS
+task transitions, normal CPU/memory, or LOW/MEDIUM Inspector findings. GitHub
+remains the native path for repository and deployment workflow failures; no
+duplicate CI-to-SNS bridge is introduced.
+
+The complete triage, evidence, acknowledgement, rotation, data-handling, and
+controlled test procedures are in the
+[NonProd alert response runbook](runbooks/nonprod-alert-response.md).
+
+### Mutation gate prerequisites
+
+Before presenting the human subscription and delivery-test gate, a future
+authenticated read-only session must prove:
+
+1. the exact NonProd account and Region;
+2. the expected topic, tags, source-restricted policy, and zero unexplained
+   subscriptions;
+3. all four alarms are not unexpectedly `ALARM` and match their Terraform
+   definitions;
+4. both enabled rules and exact SNS targets match Terraform; and
+5. the refresh-enabled runtime Terraform plan reports no changes.
+
+Only then may the owner approve one subscription request, manual confirmation,
+and one direct safe SNS test publication. Stage 10.5 source work creates no
+Terraform resource and performs no AWS mutation.
 
 ## Optional deployment evidence
 
@@ -569,7 +659,7 @@ evidence retention because the topic and focused signals already exist.
 | 10.2 | Deployment approval governance | Owner-disabled administrator bypass with authenticated read-back; self-review remains allowed and no independent reviewer is claimed | COMPLETE |
 | 10.3 | Dependency/artifact integrity | PASS — reproducible application production/development hash locks and maintenance procedure; security-tool locks proportionately deferred | Source changes only; no publication/deployment |
 | 10.4 | Deployment evidence retention | PASS — live 90-day repository setting, canonical sanitized manifest/checksum artifact, and manual PR-only durable record | Source changes only; retention setting already at target |
-| 10.5 | Human-owned alerting readiness | Destination ownership/runbook and separately approved end-to-end delivery test | AWS/SNS subscription and notification gate |
+| 10.5 | Human-owned alerting readiness | READINESS DOCUMENTED — source path and owner runbook complete; live AWS validation, subscription confirmation, and delivery test pending authentication and approval | AWS/SNS subscription and notification gate |
 | 10.6 | Comprehensive governance/security validation | Full Stage 10 diff, workflow, dependency, secret, documentation, and live-settings evidence | Read-only unless separately approved |
 | 10.7 | Stage 10 closure | One major PR, reviewed checks, honest residual risks and deferred live exercises | Merge-to-`main` gate |
 
