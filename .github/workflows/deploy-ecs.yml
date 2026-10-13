@@ -303,7 +303,9 @@ jobs:
             --expected-alb-security-group-id "$ALB_SECURITY_GROUP_ID" > "$prepare_result"
 
           rollback_digest="$(jq -r '.current_digest' "$prepare_result")"
+          rollback_image="$(jq -r '.current_image' "$prepare_result")"
           [[ "$rollback_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$rollback_image" == "${AWS_NONPROD_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@${rollback_digest}" ]]
           run_aws_json "$rollback_scan_json" aws ecr describe-image-scan-findings \
             --region "$AWS_REGION" \
             --registry-id "$AWS_NONPROD_ACCOUNT_ID" \
@@ -327,6 +329,7 @@ jobs:
             echo "current_task_definition=$current_task_definition"
             echo "current_revision=$current_revision"
             echo "rollback_digest=$rollback_digest"
+            echo "rollback_image=$rollback_image"
           } >> "$GITHUB_OUTPUT"
 
           {
@@ -444,90 +447,186 @@ jobs:
             --expected-target-group-arn "$ECS_TARGET_GROUP_ARN" \
             --expected-alb-security-group-id "$ALB_SECURITY_GROUP_ID" > "$update_result"
 
-      - name: Wait for deployment stability and verify the serving digest
+      - name: Observe and classify the deployment outcome
         shell: bash
         run: |
           set -euo pipefail
 
           work_dir="$RUNNER_TEMP/ecs-deployment-$GITHUB_RUN_ID"
-          service_json="$work_dir/deployed-service.json"
-          task_definition_json="$work_dir/deployed-task-definition.json"
-          task_list_json="$work_dir/task-list.json"
-          tasks_json="$work_dir/tasks.json"
-          target_health_json="$work_dir/target-health.json"
-          security_group_json="$work_dir/alb-security-group.json"
+          waiter_error="$work_dir/services-stable-error"
 
+          set +e
           aws ecs wait services-stable \
             --region "$AWS_REGION" \
             --cluster "$ECS_CLUSTER_NAME" \
-            --services "$ECS_SERVICE_NAME"
-
-          aws ecs describe-services \
-            --region "$AWS_REGION" \
-            --cluster "$ECS_CLUSTER_NAME" \
             --services "$ECS_SERVICE_NAME" \
-            --output json > "$service_json"
-          aws ecs describe-task-definition \
-            --region "$AWS_REGION" \
-            --task-definition "${{ steps.register.outputs.new_task_definition }}" \
-            --output json > "$task_definition_json"
-          aws ecs list-tasks \
-            --region "$AWS_REGION" \
-            --cluster "$ECS_CLUSTER_NAME" \
-            --service-name "$ECS_SERVICE_NAME" \
-            --desired-status RUNNING \
-            --output json > "$task_list_json"
-          [[ "$(jq '.taskArns | length' "$task_list_json")" == "1" ]]
-          task_arn="$(jq -r '.taskArns[0]' "$task_list_json")"
-          aws ecs describe-tasks \
-            --region "$AWS_REGION" \
-            --cluster "$ECS_CLUSTER_NAME" \
-            --tasks "$task_arn" \
-            --output json > "$tasks_json"
-          aws elbv2 describe-target-health \
-            --region "$AWS_REGION" \
-            --target-group-arn "$ECS_TARGET_GROUP_ARN" \
-            --output json > "$target_health_json"
-          aws ec2 describe-security-groups \
-            --region "$AWS_REGION" \
-            --group-ids "$ALB_SECURITY_GROUP_ID" \
-            --output json > "$security_group_json"
+            2> "$waiter_error"
+          waiter_exit_code=$?
+          set -e
 
-          python3 .github/scripts/validate_ecs_deployment_preflight.py deployed \
-            --service "$service_json" \
-            --task-definition "$task_definition_json" \
-            --tasks "$tasks_json" \
-            --target-health "$target_health_json" \
-            --security-group "$security_group_json" \
-            --expected-task-definition-arn "${{ steps.register.outputs.new_task_definition }}" \
-            --expected-image "${{ steps.prepare.outputs.candidate_uri }}" \
-            --expected-cluster-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:cluster/${ECS_CLUSTER_NAME}" \
-            --expected-service-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:service/${ECS_CLUSTER_NAME}/${ECS_SERVICE_NAME}" \
-            --expected-service-name "$ECS_SERVICE_NAME" \
-            --expected-task-family "$ECS_TASK_FAMILY" \
-            --expected-container-name "$ECS_CONTAINER_NAME" \
-            --expected-execution-role-arn "$ECS_EXECUTION_ROLE_ARN" \
-            --expected-image-prefix "${AWS_NONPROD_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@" \
-            --expected-region "$AWS_REGION" \
-            --expected-target-group-arn "$ECS_TARGET_GROUP_ARN" \
-            --expected-alb-security-group-id "$ALB_SECURITY_GROUP_ID" > "$work_dir/deployed-result.json"
+          run_aws_json() {
+            local output="$1"
+            shift
+            local error_file="$work_dir/aws-observation-error"
+            local exception
+            local message
+
+            : > "$error_file"
+            if ! "$@" > "$output" 2> "$error_file"; then
+              exception="$(sed -nE 's/^.*An error occurred \(([^)]+)\).*$/\1/p' "$error_file" | head -n 1)"
+              message="$(sed -nE 's/^.*An error occurred \([^)]+\).*: (.*)$/\1/p' "$error_file" | head -n 1)"
+              if [[ -n "$exception" && -n "$message" ]]; then
+                printf 'AWS observation failed (%s): %.500s\n' "$exception" "$message" >&2
+              else
+                echo "AWS observation failed with an unclassified AWS CLI error." >&2
+              fi
+              exit 1
+            fi
+          }
+
+          outcome="IN_PROGRESS_OR_AMBIGUOUS"
+          outcome_result="$work_dir/deployment-outcome.json"
+          for attempt in 1 2 3 4 5 6; do
+            service_json="$work_dir/observed-service.json"
+            task_definition_json="$work_dir/observed-task-definition.json"
+            task_list_json="$work_dir/observed-task-list.json"
+            tasks_json="$work_dir/observed-tasks.json"
+            target_health_json="$work_dir/observed-target-health.json"
+            security_group_json="$work_dir/observed-alb-security-group.json"
+
+            run_aws_json "$service_json" aws ecs describe-services \
+              --region "$AWS_REGION" \
+              --cluster "$ECS_CLUSTER_NAME" \
+              --services "$ECS_SERVICE_NAME" \
+              --output json
+
+            observed_task_definition="$(jq -r '.services[0].taskDefinition // empty' "$service_json")"
+            task_prefix="arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:task-definition/${ECS_TASK_FAMILY}:"
+            if [[ "$observed_task_definition" == "$task_prefix"* ]] && \
+              [[ "${observed_task_definition#"$task_prefix"}" =~ ^[1-9][0-9]*$ ]]; then
+              run_aws_json "$task_definition_json" aws ecs describe-task-definition \
+                --region "$AWS_REGION" \
+                --task-definition "$observed_task_definition" \
+                --output json
+            else
+              printf '%s\n' '{}' > "$task_definition_json"
+            fi
+
+            run_aws_json "$task_list_json" aws ecs list-tasks \
+              --region "$AWS_REGION" \
+              --cluster "$ECS_CLUSTER_NAME" \
+              --service-name "$ECS_SERVICE_NAME" \
+              --desired-status RUNNING \
+              --output json
+            mapfile -t task_arns < <(jq -r '.taskArns[]' "$task_list_json")
+            if (( ${#task_arns[@]} > 0 )); then
+              run_aws_json "$tasks_json" aws ecs describe-tasks \
+                --region "$AWS_REGION" \
+                --cluster "$ECS_CLUSTER_NAME" \
+                --tasks "${task_arns[@]}" \
+                --output json
+            else
+              printf '%s\n' '{"failures":[],"tasks":[]}' > "$tasks_json"
+            fi
+
+            run_aws_json "$target_health_json" aws elbv2 describe-target-health \
+              --region "$AWS_REGION" \
+              --target-group-arn "$ECS_TARGET_GROUP_ARN" \
+              --output json
+            run_aws_json "$security_group_json" aws ec2 describe-security-groups \
+              --region "$AWS_REGION" \
+              --group-ids "$ALB_SECURITY_GROUP_ID" \
+              --output json
+
+            python3 .github/scripts/validate_ecs_deployment_preflight.py deployment-outcome \
+              --service "$service_json" \
+              --task-definition "$task_definition_json" \
+              --tasks "$tasks_json" \
+              --target-health "$target_health_json" \
+              --security-group "$security_group_json" \
+              --previous-task-definition-arn "${{ steps.prepare.outputs.current_task_definition }}" \
+              --previous-revision "${{ steps.prepare.outputs.current_revision }}" \
+              --previous-image "${{ steps.prepare.outputs.rollback_image }}" \
+              --candidate-task-definition-arn "${{ steps.register.outputs.new_task_definition }}" \
+              --candidate-revision "${{ steps.register.outputs.new_revision }}" \
+              --candidate-image "${{ steps.prepare.outputs.candidate_uri }}" \
+              --waiter-exit-code "$waiter_exit_code" \
+              --expected-cluster-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:cluster/${ECS_CLUSTER_NAME}" \
+              --expected-service-arn "arn:aws:ecs:${AWS_REGION}:${AWS_NONPROD_ACCOUNT_ID}:service/${ECS_CLUSTER_NAME}/${ECS_SERVICE_NAME}" \
+              --expected-service-name "$ECS_SERVICE_NAME" \
+              --expected-task-family "$ECS_TASK_FAMILY" \
+              --expected-container-name "$ECS_CONTAINER_NAME" \
+              --expected-execution-role-arn "$ECS_EXECUTION_ROLE_ARN" \
+              --expected-image-prefix "${AWS_NONPROD_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@" \
+              --expected-region "$AWS_REGION" \
+              --expected-target-group-arn "$ECS_TARGET_GROUP_ARN" \
+              --expected-alb-security-group-id "$ALB_SECURITY_GROUP_ID" > "$outcome_result"
+
+            outcome="$(jq -r '.outcome' "$outcome_result")"
+            if [[ "$outcome" != "IN_PROGRESS_OR_AMBIGUOUS" ]] || [[ "$attempt" == "6" ]]; then
+              break
+            fi
+            sleep 20
+          done
+
+          if [[ "$outcome" == "SUCCESS" ]]; then
+            {
+              echo "## ECS deployment result"
+              echo
+              echo "- Source SHA: \`$SOURCE_SHA\`"
+              echo "- Candidate digest: \`${{ steps.prepare.outputs.candidate_digest }}\`"
+              echo "- Previous task definition: \`${{ steps.prepare.outputs.current_task_definition }}\`"
+              echo "- Previous rollback digest: \`${{ steps.prepare.outputs.rollback_digest }}\`"
+              echo "- New task definition: \`${{ steps.register.outputs.new_task_definition }}\`"
+              echo "- New revision: \`${{ steps.register.outputs.new_revision }}\`"
+              echo "- Deployment result: SUCCESS"
+              echo "- Service stability: PASS"
+              echo "- Running digest verification: PASS"
+              echo "- Target health: healthy"
+              echo "- Public task IP: absent"
+              echo "- ALB inbound rules: 0"
+              echo "- Previous task definition deregistered: NO"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [[ "$outcome" == "AUTOMATIC_ROLLBACK_CONFIRMED" ]]; then
+            {
+              echo "## ECS deployment rollback result"
+              echo
+              echo "- Source SHA: \`$SOURCE_SHA\`"
+              echo "- Candidate digest: \`${{ steps.prepare.outputs.candidate_digest }}\`"
+              echo "- Previous task definition: \`${{ steps.prepare.outputs.current_task_definition }}\`"
+              echo "- Attempted task definition: \`${{ steps.register.outputs.new_task_definition }}\`"
+              echo "- Deployment result: FAILED"
+              echo "- ECS circuit breaker: ROLLBACK OBSERVED"
+              echo "- Automatic rollback: CONFIRMED"
+              echo "- Restored task definition: PASS"
+              echo "- Restored digest: PASS"
+              echo "- Service stability after rollback: PASS"
+              echo "- Runtime security after rollback: PASS"
+              echo "- Target health after rollback: PASS"
+              echo "- Public task IP: absent"
+              echo "- ALB inbound rules: 0"
+              echo "- Manual rollback issued: NO"
+              echo "- Task definition deregistered: NO"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
           {
-            echo "## ECS deployment result"
+            echo "## ECS deployment rollback result"
             echo
             echo "- Source SHA: \`$SOURCE_SHA\`"
             echo "- Candidate digest: \`${{ steps.prepare.outputs.candidate_digest }}\`"
-            echo "- Previous task definition: \`${{ steps.prepare.outputs.current_task_definition }}\`"
-            echo "- Previous rollback digest: \`${{ steps.prepare.outputs.rollback_digest }}\`"
-            echo "- New task definition: \`${{ steps.register.outputs.new_task_definition }}\`"
-            echo "- New revision: \`${{ steps.register.outputs.new_revision }}\`"
-            echo "- Service stability: PASS"
-            echo "- Running digest verification: PASS"
-            echo "- Target health: healthy"
-            echo "- Public task IP: absent"
-            echo "- ALB inbound rules: 0"
-            echo "- Previous task definition deregistered: NO"
+            echo "- Attempted task definition: \`${{ steps.register.outputs.new_task_definition }}\`"
+            echo "- Deployment result: FAILED"
+            echo "- Outcome classification: \`$outcome\`"
+            echo "- Automatic rollback: ROLLBACK NOT VERIFIED"
+            echo "- Manual rollback issued: NO"
+            echo "- Task definition deregistered: NO"
           } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
       - name: Remove ephemeral deployment files
         if: always()

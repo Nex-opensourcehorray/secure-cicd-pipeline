@@ -214,6 +214,14 @@ def valid_tasks():
     }
 
 
+def rollback_tasks():
+    document = valid_tasks()
+    task = document["tasks"][0]
+    task["taskDefinitionArn"] = TASK_ARN
+    task["containers"][0]["imageDigest"] = DIGEST
+    return document
+
+
 def valid_target_health():
     return {
         "TargetHealthDescriptions": [
@@ -577,6 +585,172 @@ class DeployedRuntimeValidationTests(unittest.TestCase):
             EXPECTATIONS,
         )
         self.assertEqual(result["draining_target_count"], 1)
+
+
+class DeploymentOutcomeTests(unittest.TestCase):
+    def candidate_service(self):
+        service = valid_service()
+        new_arn = TASK_ARN.removesuffix(":1") + ":2"
+        service["services"][0]["taskDefinition"] = new_arn
+        service["services"][0]["deployments"][0]["taskDefinition"] = new_arn
+        return service
+
+    def classify(
+        self,
+        *,
+        service=None,
+        task_definition=None,
+        tasks=None,
+        target_health=None,
+        security_group=None,
+        waiter_exit_code=0,
+    ):
+        return PREFLIGHT.classify_deployment_outcome(
+            service if service is not None else valid_service(),
+            task_definition
+            if task_definition is not None
+            else valid_task_definition(),
+            tasks if tasks is not None else rollback_tasks(),
+            target_health if target_health is not None else valid_target_health(),
+            security_group
+            if security_group is not None
+            else valid_security_group(),
+            TASK_ARN,
+            1,
+            IMAGE_PREFIX + DIGEST,
+            TASK_ARN.removesuffix(":1") + ":2",
+            2,
+            IMAGE_PREFIX + CANDIDATE_DIGEST,
+            waiter_exit_code,
+            EXPECTATIONS,
+        )
+
+    def test_successful_candidate_deployment(self):
+        result = self.classify(
+            service=self.candidate_service(),
+            task_definition=registered_task_definition(),
+            tasks=valid_tasks(),
+        )
+        self.assertEqual(result["outcome"], PREFLIGHT.OUTCOME_SUCCESS)
+        self.assertFalse(result["workflow_should_fail"])
+
+    def test_circuit_breaker_automatic_rollback(self):
+        result = self.classify()
+        self.assertEqual(
+            result["outcome"],
+            PREFLIGHT.OUTCOME_AUTOMATIC_ROLLBACK_CONFIRMED,
+        )
+        self.assertTrue(result["workflow_should_fail"])
+        self.assertTrue(result["previous_task_definition_restored"])
+
+    def test_waiter_failure_with_completed_rollback(self):
+        result = self.classify(waiter_exit_code=255)
+        self.assertEqual(
+            result["outcome"],
+            PREFLIGHT.OUTCOME_AUTOMATIC_ROLLBACK_CONFIRMED,
+        )
+        self.assertEqual(result["deployment_result"], "FAILED")
+
+    def test_waiter_success_after_rollback_is_not_candidate_success(self):
+        result = self.classify(waiter_exit_code=0)
+        self.assertEqual(
+            result["outcome"],
+            PREFLIGHT.OUTCOME_AUTOMATIC_ROLLBACK_CONFIRMED,
+        )
+        self.assertNotEqual(result["outcome"], PREFLIGHT.OUTCOME_SUCCESS)
+
+    def test_unknown_revision_fails_closed(self):
+        service = valid_service()
+        service["services"][0]["taskDefinition"] = TASK_ARN.removesuffix(":1") + ":3"
+        result = self.classify(service=service)
+        self.assertEqual(
+            result["outcome"], PREFLIGHT.OUTCOME_IN_PROGRESS_OR_AMBIGUOUS
+        )
+        self.assertTrue(result["workflow_should_fail"])
+
+    def test_previous_revision_with_wrong_digest_is_invalid(self):
+        task_definition = valid_task_definition()
+        task_definition["taskDefinition"]["containerDefinitions"][0]["image"] = (
+            IMAGE_PREFIX + CANDIDATE_DIGEST
+        )
+        result = self.classify(task_definition=task_definition)
+        self.assertEqual(result["outcome"], PREFLIGHT.OUTCOME_INVALID_STATE)
+
+    def test_rollback_task_with_public_ip_is_invalid(self):
+        tasks = rollback_tasks()
+        tasks["tasks"][0]["attachments"][0]["details"].append(
+            {"name": "publicIPv4Address", "value": "203.0.113.10"}
+        )
+        result = self.classify(tasks=tasks)
+        self.assertEqual(result["outcome"], PREFLIGHT.OUTCOME_INVALID_STATE)
+
+    def test_unhealthy_rollback_target_is_invalid(self):
+        target_health = valid_target_health()
+        target_health["TargetHealthDescriptions"][0]["TargetHealth"][
+            "State"
+        ] = "unhealthy"
+        result = self.classify(target_health=target_health)
+        self.assertEqual(result["outcome"], PREFLIGHT.OUTCOME_INVALID_STATE)
+
+    def test_alb_ingress_after_rollback_is_invalid(self):
+        security_group = valid_security_group()
+        security_group["SecurityGroups"][0]["IpPermissions"] = [
+            {"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443}
+        ]
+        result = self.classify(security_group=security_group)
+        self.assertEqual(result["outcome"], PREFLIGHT.OUTCOME_INVALID_STATE)
+
+    def test_disabled_circuit_breaker_is_invalid(self):
+        service = valid_service()
+        service["services"][0]["deploymentConfiguration"][
+            "deploymentCircuitBreaker"
+        ]["enable"] = False
+        result = self.classify(service=service)
+        self.assertEqual(result["outcome"], PREFLIGHT.OUTCOME_INVALID_STATE)
+
+    def test_disabled_rollback_flag_is_invalid(self):
+        service = valid_service()
+        service["services"][0]["deploymentConfiguration"][
+            "deploymentCircuitBreaker"
+        ]["rollback"] = False
+        result = self.classify(service=service)
+        self.assertEqual(result["outcome"], PREFLIGHT.OUTCOME_INVALID_STATE)
+
+    def test_unstable_service_is_ambiguous(self):
+        service = valid_service()
+        service["services"][0]["runningCount"] = 0
+        service["services"][0]["pendingCount"] = 1
+        service["services"][0]["deployments"][0]["rolloutState"] = "IN_PROGRESS"
+        result = self.classify(service=service)
+        self.assertEqual(
+            result["outcome"], PREFLIGHT.OUTCOME_IN_PROGRESS_OR_AMBIGUOUS
+        )
+
+    def test_waiter_failure_cannot_report_candidate_success(self):
+        result = self.classify(
+            service=self.candidate_service(),
+            task_definition=registered_task_definition(),
+            tasks=valid_tasks(),
+            waiter_exit_code=255,
+        )
+        self.assertEqual(
+            result["outcome"], PREFLIGHT.OUTCOME_IN_PROGRESS_OR_AMBIGUOUS
+        )
+
+    def test_historical_failed_deployment_is_tolerated_after_rollback(self):
+        service = valid_service()
+        service["services"][0]["deployments"].append(
+            {
+                "status": "ACTIVE",
+                "rolloutState": "FAILED",
+                "taskDefinition": TASK_ARN.removesuffix(":1") + ":2",
+            }
+        )
+        result = self.classify(service=service)
+        self.assertEqual(
+            result["outcome"],
+            PREFLIGHT.OUTCOME_AUTOMATIC_ROLLBACK_CONFIRMED,
+        )
 
 
 class ScanValidationTests(unittest.TestCase):

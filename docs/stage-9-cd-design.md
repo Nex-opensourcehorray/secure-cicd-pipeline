@@ -372,9 +372,38 @@ access.
 ## Rollback Model
 
 The ECS service already has the deployment circuit breaker and automatic
-rollback enabled. The workflow relies on those controls, waits for service
-stability, and fails if rollout or verification fails. It preserves the source
-SHA, digest, old/new revisions, ECS events, and verification output.
+rollback enabled. The workflow observes that control; it does not implement a
+manual rollback. Before its single `UpdateService` call, immutable workflow
+evidence preserves the exact cluster, service, previous task-definition ARN
+and revision, previous image and digest, and candidate task-definition ARN,
+revision, and digest. The expected rollback target is never rediscovered from
+an ambiguous post-failure state.
+
+The stability waiter exit status is captured instead of being allowed to
+terminate the shell immediately. The workflow then performs at most six
+read-only observations, separated by a finite 20-second interval and bounded
+by the job timeout. Each observation is classified into exactly one outcome:
+
+| Outcome | Required meaning | Workflow result |
+| --- | --- | --- |
+| `SUCCESS` | Waiter succeeded; the candidate revision and digest are serving; rollout, runtime, target, network, and task-definition checks pass. | Success |
+| `AUTOMATIC_ROLLBACK_CONFIRMED` | The exact pre-deployment revision and digest are restored with stable counts and all runtime/security checks passing. | Failure, because the attempted deployment failed |
+| `IN_PROGRESS_OR_AMBIGUOUS` | The revision, deployment set, counts, waiter result, or rollback state cannot yet be proven. | Retry within the bound, then fail closed |
+| `INVALID_STATE` | An identity, circuit-breaker, image, task-definition, runtime, target-health, private-network, or ALB-ingress invariant is violated. | Fail closed immediately |
+
+Rollback verification requires desired/running/pending counts `1 / 1 / 0`, a
+completed PRIMARY deployment on the exact previous task definition, the exact
+previous digest in the running container, a healthy target, no public task IP,
+zero ALB ingress rules, the complete task-definition security baseline, and
+both circuit-breaker flags set to `true`. Historical failed deployment
+metadata may remain, but unresolved deployments do not qualify as recovery.
+
+A confirmed automatic rollback means runtime recovery succeeded; it never
+converts the failed candidate deployment into a successful workflow run.
+Unknown rollback state is reported as `ROLLBACK NOT VERIFIED`. The workflow
+does not issue a second `UpdateService`, force a deployment, stop a task, or
+deregister the failed task-definition revision. Retaining that revision
+preserves audit and forensic evidence.
 
 Before updating, the workflow should also recheck the currently serving digest
 because it is the automatic rollback target. A HIGH/CRITICAL finding on that
@@ -384,8 +413,12 @@ automatic rollback remains a residual risk.
 
 Failure must not trigger resource destruction, network changes, repeated force
 deployments, task-definition deregistration, public ingress, or automatic
-security-control weakening. Stage 9.6 will deliberately validate failure and
-rollback behavior under its own approval gate.
+security-control weakening. Stage 9.6 validates rollback observation and
+verification logic with deterministic fixtures only; no live failure was
+injected and no live automatic rollback is claimed. Any future live test must
+use a separately trusted, scan-clean failure-test artifact and its own explicit
+mutation approval gate. It must not weaken health checks, ports, networking,
+roles, permissions, or other security controls to manufacture failure.
 
 ## Concurrency
 

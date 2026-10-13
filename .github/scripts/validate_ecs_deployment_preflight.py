@@ -97,6 +97,11 @@ EXPECTED_HEALTH_COMMAND = [
     "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).close()",
 ]
 
+OUTCOME_SUCCESS = "SUCCESS"
+OUTCOME_AUTOMATIC_ROLLBACK_CONFIRMED = "AUTOMATIC_ROLLBACK_CONFIRMED"
+OUTCOME_IN_PROGRESS_OR_AMBIGUOUS = "IN_PROGRESS_OR_AMBIGUOUS"
+OUTCOME_INVALID_STATE = "INVALID_STATE"
+
 
 def require(condition: bool, message: str) -> None:
     if not condition:
@@ -678,6 +683,286 @@ def validate_deployed_runtime(
     }
 
 
+def deployment_outcome_result(
+    outcome: str,
+    waiter_exit_code: int,
+    reason: str,
+    **evidence: Any,
+) -> dict[str, Any]:
+    return {
+        "automatic_rollback": (
+            "CONFIRMED"
+            if outcome == OUTCOME_AUTOMATIC_ROLLBACK_CONFIRMED
+            else "NOT_CONFIRMED"
+        ),
+        "deployment_result": "SUCCESS" if outcome == OUTCOME_SUCCESS else "FAILED",
+        "manual_rollback_issued": False,
+        "outcome": outcome,
+        "reason": reason,
+        "task_definition_deregistered": False,
+        "waiter_exit_code": waiter_exit_code,
+        "workflow_should_fail": outcome != OUTCOME_SUCCESS,
+        **evidence,
+    }
+
+
+def classify_deployment_outcome(
+    service_document: dict[str, Any],
+    task_document: dict[str, Any],
+    tasks_document: dict[str, Any],
+    target_health_document: dict[str, Any],
+    security_group_document: dict[str, Any],
+    previous_task_definition_arn: str,
+    previous_revision: int,
+    previous_image: str,
+    candidate_task_definition_arn: str,
+    candidate_revision: int,
+    candidate_image: str,
+    waiter_exit_code: int,
+    expectations: RuntimeExpectations,
+) -> dict[str, Any]:
+    """Classify a post-UpdateService observation without issuing mutations."""
+
+    try:
+        require(
+            isinstance(waiter_exit_code, int) and waiter_exit_code >= 0,
+            "waiter exit code must be a non-negative integer",
+        )
+        previous_arn, parsed_previous_revision = task_definition_identity(
+            previous_task_definition_arn, expectations
+        )
+        candidate_arn, parsed_candidate_revision = task_definition_identity(
+            candidate_task_definition_arn, expectations
+        )
+        require(
+            previous_revision == parsed_previous_revision,
+            "previous revision evidence is inconsistent",
+        )
+        require(
+            candidate_revision == parsed_candidate_revision,
+            "candidate revision evidence is inconsistent",
+        )
+        require(
+            candidate_revision > previous_revision,
+            "candidate revision must be newer than the previous revision",
+        )
+        previous_digest = validate_digest_image(
+            previous_image, expectations, "previous rollback"
+        )
+        candidate_digest = validate_digest_image(
+            candidate_image, expectations, "candidate"
+        )
+        require(
+            candidate_digest != previous_digest,
+            "candidate and previous rollback digests must differ",
+        )
+
+        services = service_document.get("services")
+        require(isinstance(services, list), "services must be an array")
+        require(len(services) == 1, "exactly one ECS service must be returned")
+        require(
+            service_document.get("failures", []) == [],
+            "ECS service discovery returned failures",
+        )
+        service = require_object(services[0], "service")
+        require(
+            service.get("serviceArn") == expectations.service_arn,
+            "service ARN mismatch",
+        )
+        require(
+            service.get("clusterArn") == expectations.cluster_arn,
+            "cluster ARN mismatch",
+        )
+        require(
+            service.get("serviceName") == expectations.service_name,
+            "service name mismatch",
+        )
+        require(service.get("status") == "ACTIVE", "service must be ACTIVE")
+        require(service.get("desiredCount") == 1, "service desired count must be 1")
+        require(
+            service.get("launchType") == "FARGATE",
+            "service launch type must be FARGATE",
+        )
+        require(
+            service.get("enableExecuteCommand") is False,
+            "ECS Exec must be disabled",
+        )
+
+        deployment_configuration = require_object(
+            service.get("deploymentConfiguration"), "deploymentConfiguration"
+        )
+        require(
+            deployment_configuration.get("minimumHealthyPercent") == 100,
+            "minimum healthy percent must be 100",
+        )
+        require(
+            deployment_configuration.get("maximumPercent") == 200,
+            "maximum deployment percent must be 200",
+        )
+        circuit_breaker = require_object(
+            deployment_configuration.get("deploymentCircuitBreaker"),
+            "deploymentCircuitBreaker",
+        )
+        require(
+            circuit_breaker.get("enable") is True,
+            "deployment circuit breaker must be enabled",
+        )
+        require(
+            circuit_breaker.get("rollback") is True,
+            "deployment rollback must be enabled",
+        )
+
+        network = require_object(
+            service.get("networkConfiguration"), "networkConfiguration"
+        )
+        awsvpc = require_object(
+            network.get("awsvpcConfiguration"), "awsvpcConfiguration"
+        )
+        require(
+            awsvpc.get("assignPublicIp") == "DISABLED",
+            "public task IP assignment must be disabled",
+        )
+        load_balancers = service.get("loadBalancers")
+        require(
+            isinstance(load_balancers, list) and len(load_balancers) == 1,
+            "service must have exactly one load balancer association",
+        )
+        require(
+            load_balancers[0]
+            == {
+                "containerName": expectations.container_name,
+                "containerPort": 8000,
+                "targetGroupArn": expectations.target_group_arn,
+            },
+            "load balancer association mismatch",
+        )
+        observed_arn, observed_revision = task_definition_identity(
+            service.get("taskDefinition"), expectations
+        )
+    except ValidationError as exc:
+        return deployment_outcome_result(
+            OUTCOME_INVALID_STATE,
+            waiter_exit_code,
+            str(exc),
+        )
+
+    if observed_arn not in {previous_arn, candidate_arn}:
+        return deployment_outcome_result(
+            OUTCOME_IN_PROGRESS_OR_AMBIGUOUS,
+            waiter_exit_code,
+            "service points to neither the candidate nor previous task definition",
+            observed_task_definition_arn=observed_arn,
+            observed_task_definition_revision=observed_revision,
+        )
+
+    if service.get("runningCount") != 1 or service.get("pendingCount") != 0:
+        return deployment_outcome_result(
+            OUTCOME_IN_PROGRESS_OR_AMBIGUOUS,
+            waiter_exit_code,
+            "service counts have not returned to 1 running and 0 pending",
+            observed_task_definition_arn=observed_arn,
+            observed_task_definition_revision=observed_revision,
+        )
+
+    deployments = service.get("deployments")
+    if not isinstance(deployments, list):
+        return deployment_outcome_result(
+            OUTCOME_INVALID_STATE,
+            waiter_exit_code,
+            "service deployments must be an array",
+        )
+    primary = [item for item in deployments if item.get("status") == "PRIMARY"]
+    if len(primary) != 1:
+        return deployment_outcome_result(
+            OUTCOME_IN_PROGRESS_OR_AMBIGUOUS,
+            waiter_exit_code,
+            "service does not have exactly one PRIMARY deployment",
+            observed_task_definition_arn=observed_arn,
+            observed_task_definition_revision=observed_revision,
+        )
+    if (
+        primary[0].get("taskDefinition") != observed_arn
+        or primary[0].get("rolloutState") != "COMPLETED"
+    ):
+        return deployment_outcome_result(
+            OUTCOME_IN_PROGRESS_OR_AMBIGUOUS,
+            waiter_exit_code,
+            "the serving PRIMARY deployment is not completed",
+            observed_task_definition_arn=observed_arn,
+            observed_task_definition_revision=observed_revision,
+        )
+    unresolved = [
+        item
+        for item in deployments
+        if item is not primary[0]
+        and item.get("rolloutState") not in {"COMPLETED", "FAILED"}
+    ]
+    if unresolved:
+        return deployment_outcome_result(
+            OUTCOME_IN_PROGRESS_OR_AMBIGUOUS,
+            waiter_exit_code,
+            "one or more non-primary deployments remain unresolved",
+            observed_task_definition_arn=observed_arn,
+            observed_task_definition_revision=observed_revision,
+        )
+
+    expected_image = candidate_image if observed_arn == candidate_arn else previous_image
+    try:
+        runtime = validate_deployed_runtime(
+            service_document,
+            task_document,
+            tasks_document,
+            target_health_document,
+            security_group_document,
+            observed_arn,
+            expected_image,
+            expectations,
+        )
+    except ValidationError as exc:
+        return deployment_outcome_result(
+            OUTCOME_INVALID_STATE,
+            waiter_exit_code,
+            str(exc),
+            observed_task_definition_arn=observed_arn,
+            observed_task_definition_revision=observed_revision,
+        )
+
+    common_evidence = {
+        "alb_inbound_rule_count": 0,
+        "observed_task_definition_arn": observed_arn,
+        "observed_task_definition_revision": observed_revision,
+        "public_task_ip": None,
+        "runtime_security": "PASS",
+        "service_counts": runtime["service_counts"],
+        "target_health": runtime["target_health"],
+    }
+    if observed_arn == candidate_arn:
+        if waiter_exit_code != 0:
+            return deployment_outcome_result(
+                OUTCOME_IN_PROGRESS_OR_AMBIGUOUS,
+                waiter_exit_code,
+                "waiter failed, so candidate deployment success cannot be proven",
+                **common_evidence,
+            )
+        return deployment_outcome_result(
+            OUTCOME_SUCCESS,
+            waiter_exit_code,
+            "candidate task definition and digest are serving securely",
+            candidate_digest=candidate_digest,
+            **common_evidence,
+        )
+
+    return deployment_outcome_result(
+        OUTCOME_AUTOMATIC_ROLLBACK_CONFIRMED,
+        waiter_exit_code,
+        "exact previous task definition and digest were restored securely",
+        candidate_not_serving=True,
+        previous_digest=previous_digest,
+        previous_task_definition_restored=True,
+        **common_evidence,
+    )
+
+
 def validate_scan(scan_document: dict[str, Any], label: str) -> dict[str, Any]:
     status = require_object(scan_document.get("imageScanStatus"), "imageScanStatus")
     require(status.get("status") == "ACTIVE", f"{label} enhanced scan status must be ACTIVE")
@@ -804,6 +1089,24 @@ def build_parser() -> argparse.ArgumentParser:
     deployed.add_argument("--expected-image", required=True)
     add_expectation_arguments(deployed)
 
+    deployment_outcome = subparsers.add_parser(
+        "deployment-outcome",
+        help="classify a candidate deployment or automatic rollback observation",
+    )
+    deployment_outcome.add_argument("--service", required=True)
+    deployment_outcome.add_argument("--task-definition", required=True)
+    deployment_outcome.add_argument("--tasks", required=True)
+    deployment_outcome.add_argument("--target-health", required=True)
+    deployment_outcome.add_argument("--security-group", required=True)
+    deployment_outcome.add_argument("--previous-task-definition-arn", required=True)
+    deployment_outcome.add_argument("--previous-revision", required=True, type=int)
+    deployment_outcome.add_argument("--previous-image", required=True)
+    deployment_outcome.add_argument("--candidate-task-definition-arn", required=True)
+    deployment_outcome.add_argument("--candidate-revision", required=True, type=int)
+    deployment_outcome.add_argument("--candidate-image", required=True)
+    deployment_outcome.add_argument("--waiter-exit-code", required=True, type=int)
+    add_expectation_arguments(deployment_outcome)
+
     scan = subparsers.add_parser("scan", help="validate enhanced-scan JSON")
     scan.add_argument("--input", required=True)
     scan.add_argument("--label", required=True, choices=("candidate", "rollback"))
@@ -854,6 +1157,22 @@ def main(argv: list[str] | None = None) -> int:
                 result = validate_update_response(
                     load_json(args.input),
                     args.task_definition_arn,
+                    expectations,
+                )
+            elif args.command == "deployment-outcome":
+                result = classify_deployment_outcome(
+                    load_json(args.service),
+                    load_json(args.task_definition),
+                    load_json(args.tasks),
+                    load_json(args.target_health),
+                    load_json(args.security_group),
+                    args.previous_task_definition_arn,
+                    args.previous_revision,
+                    args.previous_image,
+                    args.candidate_task_definition_arn,
+                    args.candidate_revision,
+                    args.candidate_image,
+                    args.waiter_exit_code,
                     expectations,
                 )
             else:
