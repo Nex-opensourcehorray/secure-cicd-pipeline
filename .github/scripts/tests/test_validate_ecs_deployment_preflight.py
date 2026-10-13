@@ -164,6 +164,15 @@ def valid_update_response():
     service["taskDefinition"] = new_arn
     service["deployments"][0]["taskDefinition"] = new_arn
     service["deployments"][0]["rolloutState"] = "IN_PROGRESS"
+    service["deploymentConfiguration"]["deploymentCircuitBreaker"].update(
+        {
+            "resetOnHealthyTask": True,
+            "thresholdConfiguration": {"type": "BOUNDED_PERCENT", "value": 50},
+        }
+    )
+    service["deploymentConfiguration"].update(
+        {"strategy": "ROLLING", "bakeTimeInMinutes": 0}
+    )
     return {"service": service}
 
 
@@ -498,6 +507,15 @@ class ServiceUpdateAutomationTests(unittest.TestCase):
             valid_update_response(), new_arn, EXPECTATIONS
         )
         self.assertEqual(result["task_definition_arn"], new_arn)
+
+    def test_update_response_rejects_disabled_rollback(self):
+        new_arn = TASK_ARN.removesuffix(":1") + ":2"
+        response = valid_update_response()
+        response["service"]["deploymentConfiguration"][
+            "deploymentCircuitBreaker"
+        ]["rollback"] = False
+        with self.assertRaises(PREFLIGHT.ValidationError):
+            PREFLIGHT.validate_update_response(response, new_arn, EXPECTATIONS)
 
 
 class DeployedRuntimeValidationTests(unittest.TestCase):

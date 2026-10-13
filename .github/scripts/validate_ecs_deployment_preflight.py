@@ -543,7 +543,17 @@ def validate_update_response(
         deployment_configuration.get("deploymentCircuitBreaker"),
         "deploymentCircuitBreaker",
     )
-    require(circuit_breaker == {"enable": True, "rollback": True}, "circuit breaker mismatch")
+    # UpdateService responses may add read-only circuit-breaker status and
+    # threshold metadata. Require the two owner-controlled safety settings
+    # without rejecting compatible response-only additions.
+    require(
+        circuit_breaker.get("enable") is True,
+        "deployment circuit breaker must remain enabled",
+    )
+    require(
+        circuit_breaker.get("rollback") is True,
+        "automatic deployment rollback must remain enabled",
+    )
 
     network = require_object(service.get("networkConfiguration"), "networkConfiguration")
     awsvpc = require_object(network.get("awsvpcConfiguration"), "awsvpcConfiguration")
