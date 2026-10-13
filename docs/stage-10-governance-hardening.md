@@ -1,10 +1,10 @@
 # Stage 10 Governance and Operational Hardening
 
-> Status: **STAGE 10.1 COMPLETE; STAGE 10.2 REVALIDATED — ENVIRONMENT
-> HARDENING AWAITS A SEPARATE OWNER GATE**. The `main-governance` ruleset is
-> active. The `nonprod` Environment was re-read on 2026-10-13; no Environment,
-> AWS, IAM, Terraform, ECS, ECR, or live-service mutation occurred in Stage
-> 10.2.
+> Status: **STAGE 10.0–10.6 COMPLETE; STAGE 10.7 FINAL PR PENDING**. Stage 10.5
+> completed one confirmed human subscription and one owner-confirmed controlled
+> delivery test. Stage 10.6 revalidated the live governance, AWS alert path,
+> dependency and evidence controls, four Terraform roots, and all seven remote
+> CI/Security jobs without publishing an image or deploying ECS.
 
 ## Purpose
 
@@ -27,22 +27,22 @@ technical deployment path:
 
 ## Trusted baseline
 
-The Stage 10.2 baseline was established from a successful remote fetch, the
+The Stage 10.6 baseline was established from a successful remote fetch, the
 local repository, authenticated GitHub administration reads, check runs, and
-workflow-run evidence. Local `main` was advanced by fast-forward only before
-the continuing Stage 10 branch was created.
+workflow-run evidence. The continuing Stage 10 branch was clean, matched its
+remote, and remained zero commits behind `origin/main`.
 
 | Item | Evidence | Result |
 | --- | --- | --- |
 | Repository | `Nex-opensourcehorray/secure-cicd-pipeline`, repository ID `1409968457`, owner ID `82328818` | VERIFIED |
 | Authenticated GitHub identity | `Nex-opensourcehorray` | VERIFIED |
 | Remote default branch | `main` | VERIFIED |
-| `origin/main` / remote `main` | `c1fdbc7adf11e5e77aee83db62d05d739f84af8b` | MATCH |
-| Stage 10 design | PR #21, merge commit `c1fdbc7adf11e5e77aee83db62d05d739f84af8b` | MERGED |
-| Post-merge CI | workflow `CI`, run #57 | PASS |
-| Post-merge Security | workflow `Security`, run #57 | PASS |
+| `origin/main` / remote `main` | `6c35fad916f531863bc82e39d821126f7f0feca9` | MATCH |
+| Stage 10.2 closure | PR #22, merge commit `6c35fad916f531863bc82e39d821126f7f0feca9` | MERGED |
+| Stage 10.4 feature baseline | `c3dc7395eb507ae573e90f1ffa25daabe1927875`; remote CI #61 and Security #61 | PASS |
+| Stage 10.5 feature source | `73a6862dd5c442bc844bfb35442ca228f78cc17c` | PASS — HUMAN ALERT DELIVERY VERIFIED |
 | Starting worktree | clean; `git diff --check` returned no findings | PASS |
-| Continuing Stage 10 branch | `stage-10-operational-hardening`, created at the verified remote `main` commit | ESTABLISHED |
+| Stage 10.6 validation baseline | `stage-10-hardening-completion`; zero behind / three ahead of `origin/main` | VERIFIED |
 
 No reset or history rewrite was used. Ruleset `24978564` was also re-read and
 remained active, while branch metadata reported `main` as protected.
@@ -52,10 +52,10 @@ remained active, while branch metadata reported `main` as protected.
 | Gap | Current evidence | Risk |
 | --- | --- | --- |
 | `main` governance | Ruleset `24978564` is active and live branch metadata reports `protected: true`. | CONTROL ACTIVE — PR flow, seven checks, freshness, review-thread resolution, deletion protection, and non-fast-forward protection are enforced. |
-| Independent deployment approval | Stage 9 established one required reviewer, but the project has one maintainer and permits self-review and administrator bypass. | The Environment is a visible approval boundary, not four-eyes separation of duties. |
-| Python artifact integrity | Direct packages and Python-installed tools use exact versions, but resolved artifacts and most transitive dependencies are not hash locked. | A registry-side artifact or transitive-resolution change can alter an installation without a source change. |
-| Evidence retention | Deployment summaries and logs exist, but no explicit repository retention setting or durable sanitized deployment manifest is recorded. | Evidence can expire or become hard to correlate during review or investigation. |
-| Human notification | Runtime alarms and focused EventBridge rules publish to a source-restricted SNS topic with zero subscriptions. | High-value runtime and security signals have no confirmed human recipient. |
+| Independent deployment approval | One owner reviewer remains and self-review is allowed; administrator bypass is disabled. | The Environment is a mandatory human-visible gate, but one maintainer cannot provide four-eyes separation of duties. |
+| Python artifact integrity | Application production and development graphs are exact-version and SHA-256 hash locked. Python-installed security tools remain exact-version only by documented proportional decision. | Application installs fail closed on altered or unapproved artifacts; the larger security-tool graphs retain registry-resolution risk. |
+| Evidence retention | Repository Actions retention is verified at 90 days. The deployment workflow now creates a canonical sanitized manifest and checksum artifact, with manual PR-only promotion to a durable repository directory. | Operational evidence remains intentionally bounded; durable records require human review and a real deployment. |
+| Human notification | Terraform defines one source-restricted SNS topic, four focused alarms, and two focused EventBridge routes. One manual email subscription is confirmed and the owner confirmed receipt of one controlled test. | The endpoint remains private and outside Terraform; the solo owner is not an independent or 24x7 response function. |
 | Live promotion/rollback | No distinct scan-clean candidate was available at Stage 9 closure. | Operational evidence is deferred, but source/control completeness is not affected. |
 
 ## Threat and governance model
@@ -228,16 +228,16 @@ will provide functional evidence without destructive ruleset testing.
 
 ## Environment governance
 
-Stage 10.2 re-read the live `nonprod` Environment with the authenticated owner
-session. The Environment ID is `24058843649`; it was created and last updated
-at `2026-10-12T07:38:56Z`. No drift from the approved Stage 9 configuration was
-found.
+After the owner completed the separately gated GitHub UI change, Stage 10.2
+re-read the live `nonprod` Environment with the authenticated owner session.
+The Environment ID is `24058843649`. The read-back verified the intended
+single-field hardening and no drift in the remaining Stage 9 configuration.
 
 | Setting | Live state | Classification |
 | --- | --- | --- |
 | Required reviewer | `Nex-opensourcehorray` / user ID `82328818` | One human-visible gate |
 | Prevent self-review | `false` | Required for the current solo-maintainer workflow |
-| Administrator bypass | enabled (`can_admins_bypass: true`) | Avoidable alternate release path; not independent review |
+| Administrator bypass | disabled (`can_admins_bypass: false`) | The configured reviewer gate cannot be skipped through the administrator bypass option |
 | Wait timer | `0` (no wait-timer rule returned) | No security benefit from delay alone |
 | Deployment branch mode | custom policies enabled; protected-branch mode disabled | Exact allowlist mode |
 | Deployment branch policies | one: `main` / type `branch` | Tags, feature branches, and wildcard branches are not authorized |
@@ -262,6 +262,7 @@ HUMAN-VISIBLE APPROVAL: YES
 SELF-REVIEW POSSIBLE:    YES
 INDEPENDENT APPROVAL:   NO
 FOUR-EYES CONTROL:      NO
+ADMIN BYPASS:           DISABLED
 ```
 
 The repository collaborator read returned only `Nex-opensourcehorray`, with
@@ -270,45 +271,17 @@ available, so `prevent_self_review=true` is not feasible without risking an
 approval deadlock. This is an accepted organizational limitation, not a
 technical defect. No alternate identity will be fabricated.
 
-### Administrator-bypass capability
+### Administrator-bypass closure
 
-Self-review and administrator bypass are distinct controls. Retaining
-`prevent_self_review=false` lets the sole maintainer complete the normal
-review path. Disabling administrator bypass would remove the special path that
-can release a waiting deployment without satisfying that normal path, while
-leaving the repository usable.
-
-GitHub's current documented [REST Environment update][rest-environment-update]
-accepts only `wait_timer`, `prevent_self_review`, `reviewers`, and
-`deployment_branch_policy`; it does not document an administrator-bypass
-request field. The documented GraphQL [`updateEnvironment`][graphql-update]
-input likewise exposes only the Environment ID, wait timer, reviewers, and
-self-review control. `gh` has no separate supported mutation surface beyond
-those APIs. No undocumented payload will be attempted.
-
-GitHub's documented [Environment settings workflow][environment-settings]
-does support deselecting **Allow administrators to bypass configured
-protection rules** and saving the protection rules. The preferred near-term
-hardening is therefore technically safe but owner-performed through the web
-UI, followed by an authenticated read-back.
-
-[rest-environment-update]: https://docs.github.com/en/rest/deployments/environments?apiVersion=2026-03-10#create-or-update-an-environment
-[graphql-update]: https://docs.github.com/en/graphql/reference/mutations#updateenvironment
-[environment-settings]: https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments
-
-### Governance decision matrix
-
-| Model | Configuration | Safe now? | Security benefit | Operational effect | Recommendation |
-| --- | --- | ---: | --- | --- | --- |
-| A — current | owner reviewer; self-review allowed; admin bypass enabled | YES | Explicit human-visible gate | Owner can approve normally or bypass | Accept only until Model B is approved |
-| B — disable admin bypass only | owner reviewer; self-review allowed; admin bypass disabled | YES | Removes the special bypass route | Normal owner approval still works | **PREFERRED NEAR-TERM** |
-| C — prevent self-review with one reviewer | owner reviewer; self-review disabled | NO | Would nominally separate initiation and approval | No eligible second reviewer; deadlock risk | REJECT for current model |
-| D — independent reviewer | real second reviewer; self-review disabled; bypass disabled/restricted | NOT YET | Genuine four-eyes approval | Requires a trusted second maintainer | TARGET FUTURE STATE |
-
-The pending exact governance diff is:
+Self-review and administrator bypass remain distinct controls. Keeping
+`prevent_self_review=false` lets the sole maintainer complete the configured
+review path. Disabling administrator bypass removes the separate path that
+could release a waiting deployment without that review. The owner made that
+single UI change under the Stage 10.2 gate; authenticated read-back then
+reported `can_admins_bypass: false`.
 
 ```text
-UPDATE 1 Environment governance field
+OWNER-COMPLETED AND VERIFIED
   administrator bypass: enabled -> disabled
 
 UNCHANGED
@@ -320,98 +293,293 @@ UNCHANGED
   secrets: 0
 ```
 
-No Environment mutation occurred. The manual UI change requires a separate
-owner action gate and must be verified by a subsequent live read.
+This closes the avoidable administrator bypass without claiming independent
+review. A real second trusted maintainer is still required before self-review
+can be disabled safely and the control can be classified as four-eyes.
 
 ## Dependency and artifact integrity
 
 | Mechanism | Current pin/constraint | Classification | Assessment |
 | --- | --- | --- | --- |
 | Docker runtime/builder base | `python:3.14.7-alpine3.24@sha256:9e9fde...` | IMMUTABLE DIGEST | Strong identity for both stages. Periodic deliberate refresh is still required. |
-| Alpine `zlib` | `zlib>=1.3.2-r1` | VERSION RANGE | Security floor is explicit, but repository resolution may change the installed package. |
-| Application direct dependencies | `fastapi==0.142.2`, `uvicorn==0.53.0` | EXACT VERSION | Direct versions are fixed; transitive graph and downloaded artifacts are not fully locked. |
-| Development direct dependencies | production include plus `pytest==9.1.1`, `httpx==0.28.1` | EXACT VERSION | Same transitive/artifact limitation. |
-| Python security tools | `bandit==1.9.4`, `pip-audit==2.10.1`, `checkov==3.3.19` | EXACT VERSION | Tool versions are fixed; their dependency graphs and artifacts are registry resolved. |
+| Alpine `zlib` | `zlib>=1.3.2-r1` | VERSION FLOOR / OS-REPOSITORY-MANAGED | The patched floor remains explicit while Alpine can deliver later security revisions. Exact APK pinning would make historical rebuilds brittle as repository contents age. |
+| Application production graph | `requirements.in` intent compiled to `requirements.txt` | EXACT VERSION + SHA-256 HASH | All 14 installable requirements, including 12 transitives, are exact and hashed. Production installation requires hashes. |
+| Application development graph | `requirements-dev.in` intent compiled to `requirements-dev.txt` | EXACT VERSION + SHA-256 HASH | The complete 23-package development graph is independently installable; all requirements are exact and hashed. CI and publication validation require hashes. |
+| Python security tools | `bandit==1.9.4`, `pip-audit==2.10.1`, `checkov==3.3.19` | EXACT VERSION / HASH LOCK DEFERRED | Dry-run resolution produced 8, 28, and 97 total packages respectively. Separate hash locks would add disproportionate review/update burden to three independently updated tools. |
 | Trivy action | action at full SHA; pinned action default Trivy `v0.70.0` | FULL COMMIT SHA + EXACT VERSION | Action and scanner version are fixed. Vulnerability DB updates are intentionally current data, not a build dependency lock. |
 | Gitleaks action | `gitleaks-action@e0c47f...` with bundled Node implementation | FULL COMMIT SHA | Scanner action implementation is immutable at that commit. |
 | Other GitHub Actions | checkout, setup-python, AWS credentials, ECR login all use 40-character SHAs | FULL COMMIT SHA | Strong action source identity. Continue reviewing transitive action use on upgrades. |
 | Terraform AWS provider | root constraint `~> 6.0`; lockfiles select `6.68.0` with `h1` and `zh` hashes | HASH LOCKED | Strong resolved artifact integrity across all four roots; configuration intentionally permits reviewed lock updates. |
 
-### Stage 10.3 direction
+### Stage 10.3 implemented model
 
-Pilot generated hash locks for the small application runtime graph first. A
-maintainable target is an input/lock split with reproducible generation and
-`pip install --require-hashes`; the generated lock must include transitives and
-all intentionally supported distributions. Extend the pattern to development
-dependencies only after the container and CI install paths remain usable.
+The human-edited inputs retain the existing top-level versions:
 
-Hash-locking Checkov and other large security-tool dependency graphs may have
-high update cost. Stage 10.3 should compare a dedicated generated tool lock
-against retaining exact top-level tool versions and full-SHA Actions. It must
-not add a large lock process that maintainers cannot reliably refresh. No
-dependency changes are authorized by this Stage 10.0 design.
+```text
+DIRECT PRODUCTION (2)
+  fastapi==0.142.2
+  uvicorn==0.53.0
+
+DIRECT DEVELOPMENT (4 total; 2 development-specific)
+  production inputs
+  pytest==9.1.1
+  httpx==0.28.1
+```
+
+`pip-compile` resolves and hashes every installable package into two standalone
+locks. The production graph contains 14 packages: 2 direct and 12 transitive.
+The development graph contains 23 packages: 4 direct and 19 transitive. There
+are 14/14 hashed exact production requirements and 23/23 hashed exact
+development requirements; neither lock has an unhashed installable
+requirement. Review found no duplicate or conflicting versions. `colorama` is
+the only notable platform-specific resolution: it is selected for Windows by
+Pytest and is a harmless extra when the complete lock is installed on Linux.
+
+The compiler environment used Python `3.14.7`, pip `26.2.1`, and
+`pip-tools==7.6.2`. The generated headers record Python 3.14 and the commands:
+
+```text
+python -m piptools compile --generate-hashes --strip-extras \
+  --no-emit-index-url --no-emit-trusted-host \
+  --output-file requirements.txt requirements.in
+
+python -m piptools compile --generate-hashes --strip-extras \
+  --no-emit-index-url --no-emit-trusted-host \
+  --output-file requirements-dev.txt requirements-dev.in
+```
+
+Clean production and development installs require `--require-hashes`. The
+Dockerfile, CI test job, and publication validation job enforce that mode.
+Tampered-hash and missing-hash negative tests both failed closed. Regeneration
+from a second clean compiler environment produced byte-identical locks.
+
+### Lock refresh procedure
+
+Do not hand-edit a generated lock or its hashes.
+
+1. Edit `application/requirements.in` or
+   `application/requirements-dev.in`, retaining deliberate exact top-level
+   versions.
+2. Create a clean disposable Python 3.14 environment.
+3. Install the approved compiler version, currently `pip-tools==7.6.2`, and
+   record the Python and pip versions used.
+4. From `application/`, regenerate both locks with the commands above.
+5. Review the full graph and lock diff for unexpected, duplicate,
+   platform-specific, or conflicting packages and for unintended version
+   changes.
+6. In separate clean Python 3.14 environments, install each lock with
+   `python -m pip install --disable-pip-version-check --require-hashes -r ...`.
+7. Run `python -m pip check` in both environments.
+8. Run the application test suite from the clean development environment.
+9. Run the pinned `pip-audit==2.10.1` against both lock files without
+   suppressing findings.
+10. Build the application image, run its health/non-root checks, and scan it
+    for HIGH and CRITICAL vulnerabilities wherever Docker and Trivy are
+    available.
+11. Regenerate once more from a clean equivalent compiler environment, verify
+    byte identity, and review the lock change through the normal PR/check
+    process.
+
+### Proportional residual decisions
+
+Bandit, pip-audit, and Checkov retain exact top-level versions and normal
+trusted HTTPS package resolution. Their measured graphs contain 7, 27, and 96
+transitive packages respectively, compared with 12 production and 19
+development transitives for the application. Maintaining three additional
+large locks would increase CI complexity and update burden substantially,
+especially for Checkov, while these tools do not enter the runtime artifact.
+Full tool hash locking is therefore explicitly deferred, not overlooked.
+
+The Alpine line remains `zlib>=1.3.2-r1`. This is intentionally classified as
+`VERSION FLOOR / OS-REPOSITORY-MANAGED`: it guarantees the patched minimum and
+permits later repository security updates. Exact APK version pinning is not
+adopted because Alpine repository lifecycle can remove historical revisions
+and make rebuilds brittle. The floor was not weakened.
 
 ## Evidence retention
 
-### Current evidence locations
+### Live repository setting
 
-| Evidence | Current location | Current limitation |
+The documented repository Actions artifact-and-log retention endpoint was
+read with authenticated administration access on 2026-10-13.
+
+```text
+repository visibility: public
+repository retention: 90 days
+public-repository maximum: 90 days
+desired Stage 10 value: 90 days
+mutation required: NO
+classification: NO-OP — REPOSITORY RETENTION ALREADY AT DESIRED MAXIMUM
+```
+
+The value controls bounded GitHub operational evidence. It does not promise
+that external AWS records share that retention and does not make old or
+expired evidence reappear.
+
+### Three evidence layers
+
+| Layer | Evidence | Retention and governance |
 | --- | --- | --- |
-| Source/check result | GitHub commits, check runs, workflow runs | Retention setting was not readable with the current integration. |
-| Deployment inputs/outcome | GitHub workflow summaries and logs | No live deployment exists; logs/summaries are retention-bound. |
-| Approval | GitHub Environment deployment review record | Tied to GitHub retention and account access. |
-| AWS control-plane calls | Organization-owned CloudTrail | Exact retention/integrity configuration is externally owned and not claimed here. |
-| ECS rollout detail | ECS service events/task-definition revisions | Operational data is not a durable portfolio archive. |
-| Application/network evidence | CloudWatch application logs and VPC Flow Logs | Explicit 14-day retention. |
-| Vulnerability/security findings | Inspector and organization-owned Security Hub | Service retention and organizational policy are external to this repository. |
+| 1 — GitHub native | Workflow run, seven check results where applicable, job logs, summary, and Environment deployment approval record | Repository-configured 90 days; operational rather than permanent evidence |
+| 2 — Workflow artifact | `deployment-evidence.json` and `deployment-evidence.sha256` only | Uploaded for 90 days as `nonprod-deployment-evidence-<run_id>` by official `actions/upload-artifact` v7.0.2 pinned to commit `cf430e030ddbb5b0abf93d22962f4752f3646cd9` |
+| 3 — Durable portfolio record | A reviewed manifest under `docs/evidence/deployments/` | Repository lifetime until governed removal; manual feature branch and PR only |
 
-### Minimal portfolio-grade model
+The deployment workflow retains `contents: read`, `actions: read` only where
+source provenance needs it, and `id-token: write` only in the deployment job.
+It receives no `contents: write`, `actions: write`, package, issue, or pull
+request write permission. It cannot commit evidence, push a branch, or call a
+repository file-write API. Durable evidence therefore remains independent of
+the deployment credential path.
 
-| What | Where | Retention | Access | Integrity |
-| --- | --- | --- | --- | --- |
-| Full workflow execution and job logs | GitHub Actions | Set/confirm the public-repository maximum of 90 days | Authenticated repository readers | GitHub run/check identity and immutable source SHA |
-| Sanitized deployment manifest plus its SHA-256 checksum | Small GitHub Actions artifact | 90 days | Authenticated repository readers | Pinned upload action, checksum, workflow run identity |
-| Durable sanitized deployment index entry | Reviewed file under `docs/evidence/deployments/` added by a later human-reviewed PR, never by the deployment credentialed job | Repository lifetime | Public; therefore deliberately sanitized | Protected `main`, PR/check history, manifest checksum |
-| Approval record | GitHub Environment/run metadata | 90-day operational target; retain only a sanitized approval result/timestamp in the durable entry | Authenticated readers; sanitized entry public | Correlation by run ID and source SHA |
-| Authoritative AWS mutation trail | Existing organization-owned CloudTrail/Security Hub controls | Record the organization policy when owner evidence is available; do not invent a period | Authorized AWS/security operators | Organization-owned controls; not claimed until verified |
-| Runtime logs | Existing CloudWatch log groups | 14 days | Authorized NonProd operators | AWS service controls and least-privilege access |
+### Manifest and checksum
 
-The sanitized manifest should record only:
+Schema version `1` correlates the GitHub run and workflow-source SHA with the
+candidate source SHA, digest and vulnerability counts, safe rollback baseline,
+revision integers, terminal outcome, and validated runtime booleans. Approved
+outcomes are:
 
-- source commit SHA and immutable image digest;
-- workflow run ID/attempt and UTC timestamp;
-- approval result, without reviewer email or token data;
-- vulnerability gate decision and severity counts;
-- previous/new task-definition revision numbers, not full account-bearing ARNs;
-- deployment result and rollback classification; and
-- manifest schema version and checksum.
+```text
+SUCCESS
+AUTOMATIC_ROLLBACK_CONFIRMED
+FAIL_CLOSED_UNVERIFIED
+PRE_MUTATION_FAILURE
+```
 
-It must never contain credentials, AWS session output, raw OIDC tokens, secret
-values, Environment/repository variables, personal notification endpoints,
-private IP addresses, task IDs, local paths, full environment dumps, or
-unnecessary account/resource identifiers. Raw scan reports should not be
-committed merely for volume; record the decision, relevant finding IDs when an
-exception exists, and a link to access-controlled evidence.
+Unavailable optional values are omitted. A pre-mutation failure does not
+invent an attempted revision. Confirmed rollback explicitly records
+`succeeded: false` and `runtime_recovery_verified: true`; it is never presented
+as a successful promotion. Successful and rollback evidence require zero
+candidate/rollback HIGH and CRITICAL findings and verified stable, healthy,
+private runtime state with zero ALB ingress rules.
+
+The standard-library generator accepts only named allowlisted arguments,
+rejects unknown keys and malformed SHAs/digests/counts/revisions/outcomes,
+does not read the process environment wholesale, and writes sorted,
+newline-terminated UTF-8 JSON. It scans allowed values for credential, JWT,
+private-address, authorization, and local-path patterns. The output directory
+must contain exactly the manifest and checksum—never raw AWS responses,
+temporary directories, AWS errors, task IDs, ENI IDs, or private addresses.
+
+`deployment-evidence.sha256` uses:
+
+```text
+<sha256>  deployment-evidence.json
+```
+
+The helper independently verifies the checksum and canonical serialization
+before upload. The checksum is an integrity and correlation aid, not a digital
+signature. GitHub's separate artifact digest is recorded in the workflow
+summary when upload succeeds.
+
+### Terminal behavior and cleanup
+
+Evidence generation, upload, summary, and cleanup are the only finalization
+steps allowed to run after an earlier deployment-step failure. They execute
+after outcome classification and before deletion of raw ephemeral working
+data. Upload paths name the two evidence files explicitly and use
+`if-no-files-found: error`; the raw deployment directory is never uploaded.
+
+Evidence generation or upload failure makes the workflow fail. It cannot
+trigger `RegisterTaskDefinition`, rerun `UpdateService`, issue a rollback, or
+otherwise mutate AWS. A failed deployment stays failed even when its evidence
+artifact uploads successfully.
+
+### Durable promotion
+
+No live deployment record is created in Stage 10.4. After a meaningful future
+deployment, a maintainer downloads the artifact, verifies its checksum and
+schema, reviews sanitization and run correlation, then copies only the JSON
+manifest under the documented `YYYY-MM-DD-run-<github_run_id>.json` convention.
+The record enters through a normal feature branch, required-check PR, review,
+and merge. Stage 9.3-R1 remains preflight validation—not retrospective
+deployment evidence.
 
 This model intentionally avoids a new S3 evidence bucket, KMS key, or paid
-long-retention service. Revisit immutable external archival only if the
-portfolio becomes an operational service with formal audit requirements.
+long-retention service. CloudTrail and Security Hub retention remain
+organization-owned and are not claimed without verification. Existing
+CloudWatch application and VPC Flow Log retention remains the validated
+14-day value.
 
 ## Human alerting readiness
 
-The existing runtime path is already:
+### Authentication recovery and live validation
+
+The initial Stage 10.5 read was blocked by an expired AWS session. IAM Identity
+Center access was recovered for Management account `191125774822` and NonProd
+account `119033255630`; Stage 10.6 revalidated both identities while isolating
+the CLI from static shared credentials. A legacy local static credential was
+discovered during recovery, its server-side key was verified inactive, no
+repository or Git-history exposure was found, and the local credential material
+was removed. IAM Identity Center remains the project access mechanism.
+
+Authenticated reads in Region `ap-southeast-1` then verified the exact SNS
+topic, source-restricted policy, one confirmed subscription, all four expected
+alarms in `OK`, both EventBridge rules `ENABLED` with the exact SNS target, and
+a refresh-enabled runtime Terraform plan with no changes. The private endpoint
+was never written to repository evidence.
+
+### Source-verified signal path
+
+The existing Terraform path is:
 
 ```text
 CloudWatch alarms / focused EventBridge security and ECS signals
   -> source-restricted NonProd SNS topic
-  -> no subscription
+  -> manually governed human subscription seam
 ```
 
-The least-complex useful model is one confirmed human-owned email destination
-on the existing SNS topic, plus GitHub-native failure notifications for the
-owner's CI/CD workflows. The endpoint must not be committed to this public
-repository. Subscription creation, confirmation, and any Terraform/state
-handling require their own AWS/settings approval gate.
+Source review found no duplicate topic and no `aws_sns_topic_subscription`
+resource. Terraform owns the topic, topic policy, four alarms, two rules, and
+their SNS targets. The policy grants `sns:Publish` only to
+`cloudwatch.amazonaws.com` for the four exact alarm ARNs and to
+`events.amazonaws.com` for the two exact rule ARNs, with
+`aws:SourceAccount = 119033255630` in both statements. Source contains no
+anonymous or wildcard principal.
+
+| Signal | Source configuration | Stage 10.5 result |
+| --- | --- | --- |
+| ALB unhealthy targets | `UnHealthyHostCount`, maximum >= 1, 60-second period, 2/2 datapoints | LIVE VERIFIED; `OK` |
+| Target HTTP 5XX | `HTTPCode_Target_5XX_Count`, sum >= 1, one five-minute period | LIVE VERIFIED; `OK` |
+| ECS CPU | average `CPUUtilization` >= 80%, two five-minute periods | LIVE VERIFIED; `OK` |
+| ECS memory | average `MemoryUtilization` >= 80%, two five-minute periods | LIVE VERIFIED; `OK` |
+| ECS task failure | exact cluster/service, `STOPPED`, only `EssentialContainerExited` and `TaskFailedToStart` | LIVE VERIFIED; rule enabled and exact SNS target |
+| Inspector finding | ACTIVE HIGH/CRITICAL `AWS_ECR_CONTAINER_IMAGE` findings for `secure-cicd-demo` | LIVE VERIFIED; rule enabled and exact SNS target |
+
+The topic's service-default encryption posture remains an accepted NonProd
+design decision: alert payloads are operational metadata and a dedicated CMK
+is outside this portfolio scope. This does not permit secrets or sensitive
+application data in alert messages.
+
+### Human integration and ownership seam
+
+The implemented integration is exactly one confirmed human-owned email
+destination for the Portfolio / NonProd service owner, currently
+`Nex-opensourcehorray`. The endpoint is supplied only at execution time and
+must not enter source, Terraform state, GitHub variables/secrets, workflow
+evidence, or public reports.
+
+The human subscription remains a manual operational integration. Managing it
+with Terraform would retain private endpoint data in state without improving
+the security of this solo-portfolio workflow. Neither the deployment workflow
+nor its AWS roles need `sns:Subscribe` or `sns:Publish`; a separately
+authenticated owner/operator performs the approved lifecycle on the exact
+topic.
+
+Subscription and delivery have three distinct states:
+
+```text
+SUBSCRIPTION REQUESTED
+  -> SUBSCRIPTION CONFIRMED
+  -> END-TO-END DELIVERY VERIFIED
+```
+
+An API request is not confirmation. Confirmation requires a real subscription
+ARN from `ListSubscriptionsByTopic`; delivery additionally requires the owner
+to confirm receipt of exactly one controlled test message. The approved design
+does not trigger a CloudWatch alarm, vulnerability, task crash, 5XX response,
+or resource exhaustion merely to test delivery.
+
+### Alert categories and response expectations
 
 | Category | High-value conditions | Proposed path | Noise control |
 | --- | --- | --- | --- |
@@ -420,11 +588,36 @@ handling require their own AWS/settings approval gate.
 | RUNTIME DEGRADED | Unhealthy target, target 5XX, sustained CPU/memory alarm, failure-oriented ECS stop | Existing CloudWatch/EventBridge -> SNS -> confirmed human destination | Alarm evaluation windows and failure-only ECS stop codes; avoid all task state changes. |
 | ACTION REQUIRED | Repeated CI/Security failure on a PR intended for merge | GitHub-native Actions notification and PR status | No notification for every successful or draft run. Owner triages at the PR. |
 
-Stage 10.5 should define an owner, acknowledgement expectation, and a simple
-test message under an explicit gate. It should verify end-to-end delivery and
-document unsubscribe/rotation handling without recording the private endpoint.
-Success notifications are excluded. Recovery notifications may be added only
-where they help close an incident rather than double alert volume.
+These are portfolio expectations rather than a production SLA: SECURITY
+CRITICAL is acknowledged in the same working session or as soon as practical;
+DEPLOYMENT FAILED in the same deployment session; RUNTIME DEGRADED within a
+reasonable NonProd response window; and ACTION REQUIRED before PR merge.
+
+No human alert is required for successful CI/Security/deployment, normal ECS
+task transitions, normal CPU/memory, or LOW/MEDIUM Inspector findings. GitHub
+remains the native path for repository and deployment workflow failures; no
+duplicate CI-to-SNS bridge is introduced.
+
+The complete triage, evidence, acknowledgement, rotation, data-handling, and
+controlled test procedures are in the
+[NonProd alert response runbook](runbooks/nonprod-alert-response.md).
+
+### Stage 10.5 controlled mutation outcome
+
+After the required read-only checks passed, the owner separately approved one
+manual subscription request and one direct safe SNS test publication. Final
+sanitized facts are:
+
+```text
+confirmed human subscription: 1
+endpoint: REDACTED
+controlled test notifications: 1
+owner receipt: CONFIRMED
+```
+
+Stage 10.6 sent no additional message and made no AWS change. Any subscription
+rotation, replacement, unsubscribe, or later test requires a new explicit
+approval gate.
 
 ## Optional deployment evidence
 
@@ -462,15 +655,19 @@ evidence retention because the topic and focused signals already exist.
 | --- | --- | --- | --- |
 | 10.0 | Governance architecture and gap plan | This reviewed design, trusted baseline, exact ruleset draft | Documentation and feature-branch publication only |
 | 10.1 | `main` protection/ruleset readiness and apply | Revalidated checks/schema, owner-approved ruleset, test PR proving enforcement and recovery | Repository settings gate |
-| 10.2 | Deployment approval governance | Live Environment read; documented feasible/current and independent/future states | Environment settings gate if any change is chosen |
-| 10.3 | Dependency/artifact integrity | Small reproducible-lock pilot and maintenance procedure, or documented proportional deferral | Source changes only; no publication/deployment |
-| 10.4 | Deployment evidence retention | Sanitized schema, 90-day GitHub retention decision, artifact/index workflow design | Repository/Actions settings gate where required |
-| 10.5 | Human-owned alerting readiness | Destination ownership/runbook and separately approved end-to-end delivery test | AWS/SNS subscription and notification gate |
-| 10.6 | Comprehensive governance/security validation | Full Stage 10 diff, workflow, dependency, secret, documentation, and live-settings evidence | Read-only unless separately approved |
-| 10.7 | Stage 10 closure | One major PR, reviewed checks, honest residual risks and deferred live exercises | Merge-to-`main` gate |
+| 10.2 | Deployment approval governance | Owner-disabled administrator bypass with authenticated read-back; self-review remains allowed and no independent reviewer is claimed | COMPLETE |
+| 10.3 | Dependency/artifact integrity | PASS — reproducible application production/development hash locks and maintenance procedure; security-tool locks proportionately deferred | Source changes only; no publication/deployment |
+| 10.4 | Deployment evidence retention | PASS — live 90-day repository setting, canonical sanitized manifest/checksum artifact, and manual PR-only durable record | Source changes only; retention setting already at target |
+| 10.5 | Human-owned alerting readiness | PASS — one confirmed human subscription, one controlled test, owner receipt confirmed; endpoint redacted | Completed under the separate AWS/SNS subscription and notification gate |
+| 10.6 | Comprehensive governance/security validation | PASS — full Stage 10 diff, workflow, dependency, secret, documentation, live-settings, four drift-free plans, and 7/7 remote checks | Read-only validation plus authorized CI/Security dispatch and documentation publication |
+| 10.7 | Stage 10 closure | CLOSURE REVIEW COMPLETE — one major PR, governed checks, honest residual risks, and deferred live exercises remain at the final gate | PR-creation and merge-to-`main` gates |
 
-Related changes should accumulate on `stage-10-governance-hardening`; a PR is
+Related completion changes should accumulate on `stage-10-hardening-completion`; a PR is
 not required after each substage.
+
+The concise [Stage 10 closure evidence](stage-10-closure-evidence.md) maps the
+complete feature delta to its controls and records the final residual risks,
+deferred evidence, and explicit non-claims.
 
 ## Approval boundaries
 

@@ -6,7 +6,7 @@ COPY requirements.txt ./
 
 RUN apk add --no-cache 'zlib>=1.3.2-r1' \
     && python -m venv /opt/venv \
-    && /opt/venv/bin/python -m pip install --no-cache-dir --disable-pip-version-check -r requirements.txt \
+    && /opt/venv/bin/python -m pip install --no-cache-dir --disable-pip-version-check --require-hashes -r requirements.txt \
     && /opt/venv/bin/python -m pip uninstall --yes pip setuptools \
     && rm -rf /opt/venv/lib/python3.14/site-packages/pip* \
         /opt/venv/lib/python3.14/site-packages/setuptools*

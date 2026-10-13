@@ -62,6 +62,15 @@ See [architecture](docs/architecture.md) and the
 - The active `main-governance` ruleset requires pull requests, seven successful
   CI/Security checks, current-branch freshness, and resolved review threads;
   it also blocks deletion, force pushes, and ordinary direct pushes to `main`.
+- Application production and development dependencies are generated from
+  small exact-version input files into complete SHA-256 hash locks. Docker,
+  CI, and publication validation install them with `--require-hashes`.
+- Future ECS deployment runs produce a canonical sanitized evidence manifest
+  and checksum as a 90-day GitHub artifact. Durable deployment records require
+  separate human review and a normal governed pull request.
+- Runtime and HIGH/CRITICAL image signals converge on one source-restricted SNS
+  topic. Human subscription ownership is separated from Terraform so private
+  endpoint data does not enter state or source.
 
 ## CI Pipeline
 
@@ -91,6 +100,13 @@ active HIGH/CRITICAL findings, clones the current task definition through an
 allowlist, changes only the image URI, registers one revision, and updates only
 the exact ECS service task-definition pointer.
 
+At a terminal result it builds an allowlisted evidence manifest for success,
+confirmed automatic rollback, pre-mutation failure, or unverified failure. The
+workflow uploads only the manifest and checksum, records both manifest and
+artifact digests, and deletes raw AWS working data afterward. It has no source
+write authority; durable records under `docs/evidence/deployments/` require a
+separate reviewed PR.
+
 ## AWS IAM / OIDC Model
 
 ```text
@@ -113,6 +129,21 @@ least-privilege execution IAM, digest-pinned images, CloudWatch application
 logs, VPC Flow Logs, alarms, EventBridge security signals, and an ECS
 deployment circuit breaker. Detailed live Stage 8 evidence is recorded in
 [runtime evidence](docs/stage-8-runtime-evidence.md).
+
+## Alerting and Response
+
+The four CloudWatch alarms and two focused EventBridge rules route actionable
+runtime and security conditions to the existing NonProd SNS topic. One
+human-owned email subscription is confirmed, and the owner confirmed receipt
+of one separately approved controlled test. The endpoint is managed as a
+manual operational integration, never as repository data or Terraform state.
+
+GitHub remains the native notification path for CI, Security, PR, and
+deployment-workflow failures. Successful runs, normal ECS lifecycle events,
+normal CPU/memory, and LOW/MEDIUM Inspector findings are intentionally excluded
+from human alerting. See the
+[NonProd alert response runbook](docs/runbooks/nonprod-alert-response.md) for
+triage, acknowledgement, privacy, rotation, and gated delivery-test procedures.
 
 ## Rollback Model
 
@@ -139,12 +170,28 @@ The merged Stage 9 baseline passed:
 See [Stage 9 closure evidence](docs/stage-9-closure-evidence.md) for the final
 status and evidence boundaries.
 
+Stage 10 governance, dependency integrity, evidence retention, and human
+alerting controls passed comprehensive validation on the feature-source SHA
+recorded in [Stage 10 validation evidence](docs/stage-10-validation-evidence.md).
+Operator access was revalidated through IAM Identity Center; a discovered
+legacy local credential was removed after its server-side key was confirmed
+inactive, with no repository or Git-history exposure found. See the concise
+[Stage 10 closure evidence](docs/stage-10-closure-evidence.md) for the complete
+control map, residual risks, deferred exercises, and final PR boundary.
+
 ## Known Limitations
 
-- The `nonprod` approval boundary is single-maintainer: self-review and
-  administrator bypass are available, so it is not four-eyes approval.
-- Python packages and Python-installed security tools are version-pinned but
-  not cryptographically artifact-hash pinned.
+- The `nonprod` approval boundary is single-maintainer: self-review is allowed,
+  so it is not four-eyes approval. Administrator bypass is disabled.
+- Python-installed security tools retain exact top-level versions but their
+  larger dependency graphs are not cryptographically artifact-hash locked.
+- GitHub workflow logs and deployment-evidence artifacts are bounded to the
+  verified 90-day repository retention period; no external immutable archive
+  is currently configured.
+- One manually governed human SNS email subscription is confirmed and the
+  owner confirmed receipt of one controlled delivery test. The private endpoint
+  remains outside Terraform state and repository evidence; the solo owner is
+  not a formal 24x7 on-call function.
 - The first live ECS promotion is deferred because no distinct scan-clean,
   trusted published candidate was available at closure.
 - The live rollback exercise is deferred and requires a separately approved,

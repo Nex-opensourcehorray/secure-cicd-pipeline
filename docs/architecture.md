@@ -48,7 +48,7 @@ flowchart LR
 
     CW[CloudWatch application logs<br/>and four alarms]
     EB[EventBridge ECS and<br/>Inspector detections]
-    SNS[SNS integration topic<br/>no human subscription]
+    SNS[SNS integration topic<br/>manual human subscription seam]
     ORG[Organization-owned controls<br/>CloudTrail, GuardDuty,<br/>Security Hub, Inspector]
     INTERNET((Internet))
 
@@ -129,10 +129,13 @@ Project-owned controls include:
   HIGH/CRITICAL Inspector findings for the project ECR repository; and
 - a source-restricted SNS integration topic.
 
-The SNS topic has no human subscription, so notification delivery remains an
-explicitly deferred integration step. CloudTrail, GuardDuty, Security Hub, and
-Inspector are organization-owned account controls: this Terraform state
-consumes their signals where applicable but does not own or configure them.
+Terraform intentionally manages no human subscription. Stage 10.5 completed
+one confirmed, manually governed private email destination plus one separately
+approved direct delivery test whose receipt the owner confirmed. The endpoint
+is redacted and remains outside Terraform state and repository evidence.
+CloudTrail, GuardDuty, Security Hub, and Inspector are organization-owned
+account controls: this Terraform state consumes their signals where applicable
+but does not own or configure them.
 
 Control status and validation evidence are recorded in
 [runtime security controls](runtime-security-controls.md) and

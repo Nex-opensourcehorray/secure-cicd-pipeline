@@ -325,10 +325,14 @@ jobs:
 
           {
             echo "candidate_digest=$candidate_digest"
+            echo "candidate_high=$candidate_high"
+            echo "candidate_critical=$candidate_critical"
             echo "candidate_uri=$candidate_uri"
             echo "current_task_definition=$current_task_definition"
             echo "current_revision=$current_revision"
             echo "rollback_digest=$rollback_digest"
+            echo "rollback_high=$rollback_high"
+            echo "rollback_critical=$rollback_critical"
             echo "rollback_image=$rollback_image"
           } >> "$GITHUB_OUTPUT"
 
@@ -400,6 +404,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Update only the exact service task-definition pointer
+        id: update
         shell: bash
         run: |
           set -euo pipefail
@@ -448,6 +453,7 @@ jobs:
             --expected-alb-security-group-id "$ALB_SECURITY_GROUP_ID" > "$update_result"
 
       - name: Observe and classify the deployment outcome
+        id: outcome
         shell: bash
         run: |
           set -euo pipefail
@@ -569,6 +575,8 @@ jobs:
             sleep 20
           done
 
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+
           if [[ "$outcome" == "SUCCESS" ]]; then
             {
               echo "## ECS deployment result"
@@ -628,12 +636,171 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit 1
 
+      - name: Build sanitized deployment evidence
+        id: evidence
+        if: always()
+        shell: bash
+        env:
+          PREPARE_RESULT: ${{ steps.prepare.outcome }}
+          REGISTER_RESULT: ${{ steps.register.outcome }}
+          UPDATE_RESULT: ${{ steps.update.outcome }}
+          OBSERVATION_RESULT: ${{ steps.outcome.outcome }}
+          OBSERVED_OUTCOME: ${{ steps.outcome.outputs.outcome }}
+          CANDIDATE_DIGEST: ${{ steps.prepare.outputs.candidate_digest }}
+          CANDIDATE_HIGH: ${{ steps.prepare.outputs.candidate_high }}
+          CANDIDATE_CRITICAL: ${{ steps.prepare.outputs.candidate_critical }}
+          ROLLBACK_REVISION: ${{ steps.prepare.outputs.current_revision }}
+          ROLLBACK_DIGEST: ${{ steps.prepare.outputs.rollback_digest }}
+          ROLLBACK_HIGH: ${{ steps.prepare.outputs.rollback_high }}
+          ROLLBACK_CRITICAL: ${{ steps.prepare.outputs.rollback_critical }}
+          ATTEMPTED_REVISION: ${{ steps.register.outputs.new_revision }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          evidence_dir="$RUNNER_TEMP/deployment-evidence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          artifact_name="nonprod-deployment-evidence-${GITHUB_RUN_ID}"
+          outcome="FAIL_CLOSED_UNVERIFIED"
+
+          if [[ "$PREPARE_RESULT" != "success" ]]; then
+            outcome="PRE_MUTATION_FAILURE"
+          elif [[ "$REGISTER_RESULT" != "success" ]] || \
+            [[ "$UPDATE_RESULT" != "success" ]]; then
+            outcome="FAIL_CLOSED_UNVERIFIED"
+          elif [[ "$OBSERVATION_RESULT" == "success" ]] && \
+            [[ "$OBSERVED_OUTCOME" == "SUCCESS" ]]; then
+            outcome="SUCCESS"
+          elif [[ "$OBSERVED_OUTCOME" == "AUTOMATIC_ROLLBACK_CONFIRMED" ]]; then
+            outcome="AUTOMATIC_ROLLBACK_CONFIRMED"
+          fi
+
+          args=(
+            build
+            --output-dir "$evidence_dir"
+            --repository "$GITHUB_REPOSITORY"
+            --environment "nonprod"
+            --task-definition-family "$ECS_TASK_FAMILY"
+            --workflow-name "Deploy approved image to NonProd ECS"
+            --run-id "$GITHUB_RUN_ID"
+            --run-attempt "$GITHUB_RUN_ATTEMPT"
+            --source-workflow-sha "$GITHUB_SHA"
+            --candidate-source-sha "$SOURCE_SHA"
+            --outcome "$outcome"
+          )
+
+          if [[ "$PREPARE_RESULT" == "success" ]]; then
+            [[ "$CANDIDATE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+            [[ "$CANDIDATE_HIGH" =~ ^[0-9]+$ ]]
+            [[ "$CANDIDATE_CRITICAL" =~ ^[0-9]+$ ]]
+            [[ "$ROLLBACK_REVISION" =~ ^[1-9][0-9]*$ ]]
+            [[ "$ROLLBACK_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+            [[ "$ROLLBACK_HIGH" =~ ^[0-9]+$ ]]
+            [[ "$ROLLBACK_CRITICAL" =~ ^[0-9]+$ ]]
+            args+=(
+              --candidate-digest "$CANDIDATE_DIGEST"
+              --candidate-high "$CANDIDATE_HIGH"
+              --candidate-critical "$CANDIDATE_CRITICAL"
+              --rollback-revision "$ROLLBACK_REVISION"
+              --rollback-digest "$ROLLBACK_DIGEST"
+              --rollback-high "$ROLLBACK_HIGH"
+              --rollback-critical "$ROLLBACK_CRITICAL"
+            )
+          fi
+
+          if [[ "$REGISTER_RESULT" == "success" ]]; then
+            [[ "$ATTEMPTED_REVISION" =~ ^[1-9][0-9]*$ ]]
+            args+=(--attempted-revision "$ATTEMPTED_REVISION")
+          fi
+
+          if [[ "$outcome" == "SUCCESS" ]] || \
+            [[ "$outcome" == "AUTOMATIC_ROLLBACK_CONFIRMED" ]]; then
+            args+=(
+              --service-stable true
+              --target-healthy true
+              --public-task-ip-absent true
+              --alb-ingress-rules 0
+            )
+          fi
+          if [[ "$outcome" == "AUTOMATIC_ROLLBACK_CONFIRMED" ]]; then
+            args+=(--restored-revision "$ROLLBACK_REVISION")
+          fi
+
+          manifest_sha256="$(
+            python3 .github/scripts/build_deployment_evidence.py "${args[@]}"
+          )"
+          [[ "$manifest_sha256" =~ ^[0-9a-f]{64}$ ]]
+          verified_sha256="$(
+            python3 .github/scripts/build_deployment_evidence.py verify \
+              --manifest "$evidence_dir/deployment-evidence.json" \
+              --checksum "$evidence_dir/deployment-evidence.sha256"
+          )"
+          [[ "$verified_sha256" == "$manifest_sha256" ]]
+
+          mapfile -t evidence_files < <(
+            find "$evidence_dir" -maxdepth 1 -type f -printf '%f\n' | sort
+          )
+          [[ "${#evidence_files[@]}" == "2" ]]
+          [[ "${evidence_files[0]}" == "deployment-evidence.json" ]]
+          [[ "${evidence_files[1]}" == "deployment-evidence.sha256" ]]
+
+          {
+            echo "artifact_name=$artifact_name"
+            echo "evidence_dir=$evidence_dir"
+            echo "manifest_sha256=$manifest_sha256"
+            echo "schema_version=1"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload sanitized deployment evidence
+        id: upload_evidence
+        if: always() && steps.evidence.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.evidence.outputs.artifact_name }}
+          path: |
+            ${{ steps.evidence.outputs.evidence_dir }}/deployment-evidence.json
+            ${{ steps.evidence.outputs.evidence_dir }}/deployment-evidence.sha256
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Record deployment evidence summary
+        if: ${{ !cancelled() && steps.evidence.outcome == 'success' }}
+        shell: bash
+        env:
+          ARTIFACT_DIGEST: ${{ steps.upload_evidence.outputs.artifact-digest }}
+          ARTIFACT_NAME: ${{ steps.evidence.outputs.artifact_name }}
+          MANIFEST_SHA256: ${{ steps.evidence.outputs.manifest_sha256 }}
+          UPLOAD_RESULT: ${{ steps.upload_evidence.outcome }}
+        run: |
+          set -euo pipefail
+          [[ "$MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+
+          {
+            echo "## Evidence"
+            echo
+            echo "- Evidence schema: v1"
+            echo "- Evidence artifact: \`$ARTIFACT_NAME\`"
+            echo "- Manifest SHA-256: \`$MANIFEST_SHA256\`"
+            echo "- Retention: 90 days"
+            if [[ "$UPLOAD_RESULT" == "success" && -n "$ARTIFACT_DIGEST" ]]; then
+              echo "- GitHub artifact digest: \`$ARTIFACT_DIGEST\`"
+            else
+              echo "- GitHub artifact upload: FAILED"
+            fi
+            echo "- Durable repository record: manual reviewed PR only"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Remove ephemeral deployment files
         if: always()
         shell: bash
         run: |
           set -euo pipefail
           work_dir="$RUNNER_TEMP/ecs-deployment-$GITHUB_RUN_ID"
+          evidence_dir="$RUNNER_TEMP/deployment-evidence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           if [[ -d "$work_dir" ]]; then
             rm -rf -- "$work_dir"
+          fi
+          if [[ -d "$evidence_dir" ]]; then
+            rm -rf -- "$evidence_dir"
           fi

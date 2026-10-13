@@ -25,9 +25,9 @@ production-ready or risk-free.
 | Network flow logging | ALL VPC flows use a dedicated 14-day log group and narrowly scoped delivery role. | Lack of network-forensics evidence. | Flow Log status `ACTIVE`, delivery `SUCCESS`, with log streams present. | VALIDATED |
 | Runtime metric alarms | Four alarms cover unhealthy targets, target 5XX, ECS CPU, and ECS memory. | Silent availability or saturation degradation. | All four alarms existed with SNS actions and state `OK`. | VALIDATED |
 | Security event routing | EventBridge selects failure-oriented ECS stops and active HIGH/CRITICAL ECR Inspector findings. | Missed task failures and serious image findings. | Both rules were `ENABLED` with one SNS target each. | VALIDATED |
-| Source-restricted alert topic | SNS policy permits publish only from the exact alarms and EventBridge rules in the NonProd account. | Arbitrary alert injection. | Terraform policy review; topic exists with zero subscriptions. | VALIDATED, DELIVERY DEFERRED |
-| Terraform drift check | Runtime source and live state are compared with a refresh-enabled plan. | Undetected manual or provider drift. | Final Stage 8.8 plan reported no changes. | VALIDATED |
-| GitHub CI and Security | Tests and security checks run on the immutable source commit. | Regressions or unsafe source entering the baseline. | CI run 35 and Security run 35 passed for the Stage 8 baseline commit. | VALIDATED |
+| Source-restricted alert topic | SNS policy permits publish only from the exact alarms and EventBridge rules in the NonProd account. Terraform owns no human endpoint. | Arbitrary alert injection and private endpoint retention in state. | Stage 10.6 revalidated the policy, one confirmed email subscription with its endpoint redacted, and owner-confirmed receipt of one controlled test message. | VALIDATED |
+| Terraform drift check | Runtime source and live state are compared with a refresh-enabled plan. | Undetected manual or provider drift. | The Stage 10.6 runtime plan returned detailed exit code 0 with no changes. | VALIDATED |
+| GitHub CI and Security | Tests and security checks run on the immutable source commit. | Regressions or unsafe source entering the baseline. | Stage 10.6 CI run `38387312620` and Security run `38387318507` passed all seven governed jobs for source `73a6862dd5c442bc844bfb35442ca228f78cc17c`. | VALIDATED |
 
 ## Detection coverage
 
@@ -43,9 +43,12 @@ production-ready or risk-free.
 | Unauthorized cloud activity | CloudTrail, GuardDuty, and Security Hub | Organization-managed detections | Organization | EXTERNAL CONTROL; not managed by this state |
 | Public request visibility | ALB access logs | No Stage 8 detection | Project | NOT AVAILABLE; deferred with public exposure controls |
 
-The topic is an integration point, not a completed notification path: it has no
-email, SMS, or other human subscription. Alarm state `OK` demonstrates current
-metric state, not end-to-end human delivery.
+At Stage 8 closure the topic was an integration point with no human
+subscription. Stage 10.5 retained Terraform ownership of routing and added one
+manual email subscription outside state. Stage 10.6 re-read one confirmed
+subscription, and the owner confirmed receipt of the one controlled test sent
+under the earlier approval gate. Alarm state `OK` still demonstrates metric
+state at the time of observation rather than independently testing each signal.
 
 The current [threat model](threat-model.md) now covers deployment identity,
 authorization, artifact selection, approval, rollback, workflow compromise,
