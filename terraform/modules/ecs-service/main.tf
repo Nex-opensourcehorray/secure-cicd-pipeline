@@ -107,6 +107,15 @@ resource "aws_ecs_service" "this" {
     container_port   = local.container_port
   }
 
+  # Terraform owns the service configuration, while the approved deployment
+  # workflow owns which immutable task-definition revision the service runs.
+  # Keep this ownership seam limited to the revision pointer only.
+  lifecycle {
+    ignore_changes = [
+      task_definition,
+    ]
+  }
+
   tags = merge(var.tags, {
     Name = local.service_name
   })

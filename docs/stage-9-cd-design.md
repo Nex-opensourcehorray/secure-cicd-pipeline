@@ -1,8 +1,9 @@
 # Stage 9 Continuous Deployment Design
 
-> Status: **PARTIALLY IMPLEMENTED**. Stage 9.1 deployment identity controls are
-> operationally validated. Stage 9.2 implements a source-only, read-only
-> deployment preflight; it does not implement or authorize an ECS deployment.
+> Status: **PARTIALLY IMPLEMENTED**. Stage 9.1 deployment identity controls and
+> the Stage 9.3 `nonprod` approval boundary are operationally validated. Stage
+> 9.4 implements the source-side digest-to-task-definition deployment path; its
+> first live execution remains deferred to the separately approved Stage 9.5.
 
 ## Implementation status
 
@@ -11,16 +12,20 @@
 - **Stage 9.2:** deployment workflow source foundation implemented. It validates
   trusted-main provenance, exact trusted publication evidence, immutable ECR
   identity, current scan state, and current ECS security invariants.
-- **Deployment mutation:** NOT IMPLEMENTED.
-- **Environment approval protection:** NOT IMPLEMENTED; Stage 9.3 owns this
-  GitHub setting.
-- **Terraform/CD ownership seam:** NOT IMPLEMENTED; Terraform still owns the
-  ECS service task-definition pointer.
+- **Stage 9.3:** the protected `nonprod` Environment and reviewer path are
+  configured and operationally validated by run `38272473650`.
+- **Stage 9.4 deployment mutation capability:** IMPLEMENTED IN SOURCE. The
+  workflow constructs an allowlisted revision, registers it, updates only the
+  exact service task-definition pointer, waits for stability, and validates the
+  serving digest and target health.
+- **Terraform/CD ownership seam:** IMPLEMENTED IN SOURCE. Terraform ignores
+  only the ECS service `task_definition` pointer while retaining ownership of
+  every other service and runtime property.
 - **First ECS deployment:** NOT EXECUTED.
 
-The Stage 9.2 workflow must not be dispatched until Stage 9.3 configures and
-reviews the required `nonprod` Environment metadata and protections. Later
-task-definition registration and service update behavior remain Stage 9.4.
+Stage 9.4 implementation and local validation do not authorize workflow
+dispatch. The first mutating run remains Stage 9.5 and requires its own owner
+approval gate.
 
 ## Scope
 
@@ -248,8 +253,7 @@ evaluated:
 | B — Terraform owns infrastructure and baseline task security; CD owns new revisions and the service revision pointer | Creates one narrow, explicit ownership seam while preserving all other drift detection. | **Selected** |
 | C — remove/refactor task-definition ownership into a larger template or data-source system | Can centralize deployment ownership but materially increases source/state migration complexity. | Deferred; unnecessary for this NonProd design |
 
-Before the first deployment, a separately reviewed Terraform change must add
-this lifecycle boundary to the ECS **service only**:
+Stage 9.4 adds this lifecycle boundary to the ECS **service only**:
 
 ```hcl
 lifecycle {
@@ -269,6 +273,9 @@ Stage 8 normalization workaround. `container_definitions`, `desired_count`,
 `network_configuration`, `load_balancer`, security properties, and every other
 service attribute must remain managed. `ignore_changes =
 [container_definitions]` is prohibited.
+
+The lifecycle seam is a source ownership declaration. It produces no AWS
+mutation by itself, and Stage 9.4 does not authorize `terraform apply`.
 
 ## Task Definition Revision Strategy
 
@@ -365,9 +372,38 @@ access.
 ## Rollback Model
 
 The ECS service already has the deployment circuit breaker and automatic
-rollback enabled. The workflow relies on those controls, waits for service
-stability, and fails if rollout or verification fails. It preserves the source
-SHA, digest, old/new revisions, ECS events, and verification output.
+rollback enabled. The workflow observes that control; it does not implement a
+manual rollback. Before its single `UpdateService` call, immutable workflow
+evidence preserves the exact cluster, service, previous task-definition ARN
+and revision, previous image and digest, and candidate task-definition ARN,
+revision, and digest. The expected rollback target is never rediscovered from
+an ambiguous post-failure state.
+
+The stability waiter exit status is captured instead of being allowed to
+terminate the shell immediately. The workflow then performs at most six
+read-only observations, separated by a finite 20-second interval and bounded
+by the job timeout. Each observation is classified into exactly one outcome:
+
+| Outcome | Required meaning | Workflow result |
+| --- | --- | --- |
+| `SUCCESS` | Waiter succeeded; the candidate revision and digest are serving; rollout, runtime, target, network, and task-definition checks pass. | Success |
+| `AUTOMATIC_ROLLBACK_CONFIRMED` | The exact pre-deployment revision and digest are restored with stable counts and all runtime/security checks passing. | Failure, because the attempted deployment failed |
+| `IN_PROGRESS_OR_AMBIGUOUS` | The revision, deployment set, counts, waiter result, or rollback state cannot yet be proven. | Retry within the bound, then fail closed |
+| `INVALID_STATE` | An identity, circuit-breaker, image, task-definition, runtime, target-health, private-network, or ALB-ingress invariant is violated. | Fail closed immediately |
+
+Rollback verification requires desired/running/pending counts `1 / 1 / 0`, a
+completed PRIMARY deployment on the exact previous task definition, the exact
+previous digest in the running container, a healthy target, no public task IP,
+zero ALB ingress rules, the complete task-definition security baseline, and
+both circuit-breaker flags set to `true`. Historical failed deployment
+metadata may remain, but unresolved deployments do not qualify as recovery.
+
+A confirmed automatic rollback means runtime recovery succeeded; it never
+converts the failed candidate deployment into a successful workflow run.
+Unknown rollback state is reported as `ROLLBACK NOT VERIFIED`. The workflow
+does not issue a second `UpdateService`, force a deployment, stop a task, or
+deregister the failed task-definition revision. Retaining that revision
+preserves audit and forensic evidence.
 
 Before updating, the workflow should also recheck the currently serving digest
 because it is the automatic rollback target. A HIGH/CRITICAL finding on that
@@ -377,8 +413,12 @@ automatic rollback remains a residual risk.
 
 Failure must not trigger resource destruction, network changes, repeated force
 deployments, task-definition deregistration, public ingress, or automatic
-security-control weakening. Stage 9.6 will deliberately validate failure and
-rollback behavior under its own approval gate.
+security-control weakening. Stage 9.6 validates rollback observation and
+verification logic with deterministic fixtures only; no live failure was
+injected and no live automatic rollback is claimed. Any future live test must
+use a separately trusted, scan-clean failure-test artifact and its own explicit
+mutation approval gate. It must not weaken health checks, ports, networking,
+roles, permissions, or other security controls to manufacture failure.
 
 ## Concurrency
 
@@ -471,7 +511,7 @@ The following are prerequisites for later substages, not Stage 9.0 changes:
 | 9.1 | Dedicated deployment IAM foundation |
 | 9.2 | Deployment workflow source foundation |
 | 9.3 | GitHub Environment and approval gate |
-| 9.4 | Digest-to-task-definition revision automation |
+| 9.4 | Digest-to-task-definition revision automation (source implemented; live execution deferred) |
 | 9.5 | First ECS deployment and stability validation |
 | 9.6 | Failed-deployment/circuit-breaker rollback test |
 | 9.7 | Supply-chain and least-privilege CD validation |
