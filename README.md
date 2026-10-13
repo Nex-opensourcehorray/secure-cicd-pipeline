@@ -169,6 +169,10 @@ The merged Stage 9 baseline passed:
 See [Stage 9 closure evidence](docs/stage-9-closure-evidence.md) for the final
 status and evidence boundaries.
 
+Stage 10 governance, dependency integrity, evidence retention, and human
+alerting controls passed comprehensive validation on the feature-source SHA
+recorded in [Stage 10 validation evidence](docs/stage-10-validation-evidence.md).
+
 ## Known Limitations
 
 - The `nonprod` approval boundary is single-maintainer: self-review is allowed,
@@ -178,9 +182,10 @@ status and evidence boundaries.
 - GitHub workflow logs and deployment-evidence artifacts are bounded to the
   verified 90-day repository retention period; no external immutable archive
   is currently configured.
-- No confirmed human SNS subscriber or end-to-end alert delivery evidence
-  exists yet; creating the subscription and sending one test notification are
-  separate explicitly approved AWS mutations.
+- One manually governed human SNS email subscription is confirmed and the
+  owner confirmed receipt of one controlled delivery test. The private endpoint
+  remains outside Terraform state and repository evidence; the solo owner is
+  not a formal 24x7 on-call function.
 - The first live ECS promotion is deferred because no distinct scan-clean,
   trusted published candidate was available at closure.
 - The live rollback exercise is deferred and requires a separately approved,

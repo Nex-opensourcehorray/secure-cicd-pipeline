@@ -276,8 +276,9 @@ value before they are added.
 
 - One solo maintainer owns acknowledgement and response; no independent
   on-call rotation or formal 24x7 SLA exists.
-- The human subscription and inbox receipt are not proven until the explicit
-  mutation gate is approved and completed.
+- Stage 10.5 proved one confirmed human subscription and owner receipt of one
+  controlled test message. Rotation, replacement, or another delivery test
+  still requires its own explicit mutation approval.
 - SNS uses the accepted NonProd service-default encryption posture. Alert
   payloads remain sanitized/non-secret, and no dedicated CMK is introduced
   solely for this stage.

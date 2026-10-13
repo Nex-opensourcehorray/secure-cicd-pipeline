@@ -129,9 +129,10 @@ Project-owned controls include:
   HIGH/CRITICAL Inspector findings for the project ECR repository; and
 - a source-restricted SNS integration topic.
 
-Terraform intentionally manages no human subscription. The Stage 10 target is
-one confirmed, manually governed private email destination plus a separately
-approved direct delivery test; live end-to-end delivery remains unverified.
+Terraform intentionally manages no human subscription. Stage 10.5 completed
+one confirmed, manually governed private email destination plus one separately
+approved direct delivery test whose receipt the owner confirmed. The endpoint
+is redacted and remains outside Terraform state and repository evidence.
 CloudTrail, GuardDuty, Security Hub, and Inspector are organization-owned
 account controls: this Terraform state consumes their signals where applicable
 but does not own or configure them.

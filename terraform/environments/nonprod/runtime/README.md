@@ -84,8 +84,10 @@ active HIGH/CRITICAL project ECR findings to the source-restricted SNS topic.
 
 This Terraform root intentionally owns no human subscription. A private human
 endpoint is a manually governed operational integration so it does not enter
-Terraform state. End-to-end delivery is not complete until a separately
-approved destination is confirmed and one controlled test is received.
+Terraform state. Stage 10.5 completed one approved subscription, AWS reports it
+confirmed, and the owner confirmed receipt of one controlled test message. The
+endpoint remains redacted and future subscription changes or test messages
+remain separately gated.
 CloudTrail, GuardDuty, Security Hub, and Inspector are organization-owned and
 are not configured by this root.
 
