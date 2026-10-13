@@ -29,8 +29,9 @@
   deterministic tests pass; no live failure was injected.
 - **Stage 9.7:** supply-chain and least-privilege review passed with documented
   governance limitations.
-- **Stage 9.8:** closure documentation and final regression are prepared on the
-  closure branch and become final when its reviewed PR is merged.
+- **Stage 9.8:** COMPLETE. Closure documentation and final regression were
+  merged through PR #20 as commit
+  `9ee8268693b5bd63d9253fd683dfa2ff6fbf3725`.
 
 Implementation and source validation do not authorize workflow dispatch. A
 first mutating run remains a separately approved operation.

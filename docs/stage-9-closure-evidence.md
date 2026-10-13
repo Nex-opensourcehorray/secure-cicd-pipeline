@@ -63,8 +63,8 @@ selected task-definition pointer. Terraform ignores only that pointer.
 | 9.7 | Supply-chain and least privilege | YES | YES | NONE | PASS WITH WARNINGS |
 | 9.8 | Stage closure | YES | Final regression | NONE | CLOSED AFTER FINAL MERGE |
 
-The Stage 9.8 row describes the intended post-merge classification. Before the
-closure PR is merged, Stage 9 remains at the final closure merge gate.
+The Stage 9.8 row is the final classification after PR #20 merged as commit
+`9ee8268693b5bd63d9253fd683dfa2ff6fbf3725`.
 
 ## Security Controls
 
@@ -184,7 +184,7 @@ and explicit approval for task-definition registration and service update.
 
 ## Closure Classification
 
-After the final closure PR is merged:
+Final after PR #20 merged:
 
 ```text
 STAGE 9 - CLOSED
