@@ -62,6 +62,9 @@ See [architecture](docs/architecture.md) and the
 - The active `main-governance` ruleset requires pull requests, seven successful
   CI/Security checks, current-branch freshness, and resolved review threads;
   it also blocks deletion, force pushes, and ordinary direct pushes to `main`.
+- Application production and development dependencies are generated from
+  small exact-version input files into complete SHA-256 hash locks. Docker,
+  CI, and publication validation install them with `--require-hashes`.
 
 ## CI Pipeline
 
@@ -141,10 +144,10 @@ status and evidence boundaries.
 
 ## Known Limitations
 
-- The `nonprod` approval boundary is single-maintainer: self-review and
-  administrator bypass are available, so it is not four-eyes approval.
-- Python packages and Python-installed security tools are version-pinned but
-  not cryptographically artifact-hash pinned.
+- The `nonprod` approval boundary is single-maintainer: self-review is allowed,
+  so it is not four-eyes approval. Administrator bypass is disabled.
+- Python-installed security tools retain exact top-level versions but their
+  larger dependency graphs are not cryptographically artifact-hash locked.
 - The first live ECS promotion is deferred because no distinct scan-clean,
   trusted published candidate was available at closure.
 - The live rollback exercise is deferred and requires a separately approved,
